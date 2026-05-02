@@ -18,17 +18,27 @@ def download_video(url: str, session_id: str) -> dict:
     video_path = session_dir / "video.mp4"
 
     ydl_opts = {
-        "format": "best[ext=mp4]/best",  # single file, no merging needed, no ffmpeg required
+        "format": "best[ext=mp4]/best",
         "outtmpl": str(video_path),
         "quiet": True,
         "no_warnings": True,
-        "cookiesfrombrowser": ("chrome",),  # use your logged-in Chrome session
     }
 
-    # Use cookies file if available to avoid YouTube bot detection
+    # Use cookies file if available (takes priority)
     cookies_path = Path(COOKIES_FILE)
     if cookies_path.exists():
         ydl_opts["cookiefile"] = str(cookies_path)
+    else:
+        # Try browsers in order — Firefox doesn't lock DB while running, Chrome does
+        for browser in ["firefox", "edge", "chrome"]:
+            try:
+                test_opts = {**ydl_opts, "cookiesfrombrowser": (browser,), "skip_download": True}
+                with yt_dlp.YoutubeDL(test_opts) as ydl:
+                    ydl.extract_info(url, download=False)
+                ydl_opts["cookiesfrombrowser"] = (browser,)
+                break
+            except Exception:
+                continue
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
