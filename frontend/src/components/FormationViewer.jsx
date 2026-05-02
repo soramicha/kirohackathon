@@ -633,6 +633,9 @@ export default function FormationViewer({ session, formations: initialFormations
       setTimeout(() => setAddFormationMessage(null), 3000);
     } finally {
       setDeletingFormation(false);
+    }
+  }
+
   function startEditingDancer(dancerId, currentLabel) {
     setEditingDancer(dancerId);
     setEditingName(currentLabel);
