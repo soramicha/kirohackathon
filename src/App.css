@@ -1,0 +1,944 @@
+/* ============================================================
+   Dance Formation App — global component styles
+   ============================================================ */
+
+/* ------------------------------------------------------------------ */
+/* Layout                                                               */
+/* ------------------------------------------------------------------ */
+
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+}
+
+.app-main {
+  flex: 1;
+  padding: 32px 24px 64px;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ------------------------------------------------------------------ */
+/* Header                                                               */
+/* ------------------------------------------------------------------ */
+
+.app-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.app-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.app-logo-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-h);
+  padding: 0;
+  font-family: var(--heading);
+  letter-spacing: -0.3px;
+}
+
+.app-header-actions {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+/* ------------------------------------------------------------------ */
+/* Step indicator                                                        */
+/* ------------------------------------------------------------------ */
+
+.step-indicator {
+  display: flex;
+  list-style: none;
+  padding: 8px 24px;
+  margin: 0;
+  gap: 0;
+  overflow-x: auto;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  border-top: 1px solid var(--border);
+}
+
+.step-indicator-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.step-indicator-item + .step-indicator-item::before {
+  content: '›';
+  margin: 0 8px;
+  color: var(--border);
+}
+
+.step-indicator-item--active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.step-indicator-item--done {
+  color: var(--text);
+  opacity: 0.6;
+}
+
+.step-indicator-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--border);
+  color: var(--text-h);
+}
+
+.step-indicator-item--active .step-indicator-dot {
+  background: var(--accent);
+  color: #fff;
+}
+
+.step-indicator-item--done .step-indicator-dot {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+/* ------------------------------------------------------------------ */
+/* Session drawer                                                        */
+/* ------------------------------------------------------------------ */
+
+.session-drawer {
+  border-bottom: 1px solid var(--border);
+  background: var(--code-bg);
+  padding: 16px 24px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Panel                                                                 */
+/* ------------------------------------------------------------------ */
+
+.panel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 28px 32px;
+  margin-bottom: 24px;
+  text-align: left;
+}
+
+.panel h2 {
+  margin: 0 0 8px;
+}
+
+.panel-description {
+  color: var(--text);
+  margin-bottom: 20px;
+  font-size: 15px;
+}
+
+.panel-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 0 16px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Buttons                                                               */
+/* ------------------------------------------------------------------ */
+
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 20px;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 500;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s, box-shadow 0.15s;
+
+  &:hover:not(:disabled) {
+    opacity: 0.88;
+    box-shadow: var(--shadow);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+.link-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 14px;
+  padding: 4px 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+
+  &:hover {
+    opacity: 0.75;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+}
+
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-size: 14px;
+  background: transparent;
+  color: #dc2626;
+  border: 1px solid #dc2626;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover:not(:disabled) {
+    background: rgba(220, 38, 38, 0.08);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+.remove-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+
+  &:hover {
+    background: var(--border);
+    color: var(--text-h);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Form fields                                                           */
+/* ------------------------------------------------------------------ */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.field label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+.input-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.input-row input {
+  flex: 1;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 15px;
+  background: var(--bg);
+  color: var(--text-h);
+  font-family: var(--sans);
+  transition: border-color 0.15s;
+
+  &:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-bg);
+  }
+
+  &[aria-invalid='true'] {
+    border-color: #dc2626;
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Messages                                                              */
+/* ------------------------------------------------------------------ */
+
+.error-message {
+  color: #dc2626;
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.warning-message {
+  color: #d97706;
+  font-size: 14px;
+  background: rgba(217, 119, 6, 0.08);
+  border: 1px solid rgba(217, 119, 6, 0.3);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin: 12px 0;
+}
+
+.status-message {
+  color: var(--text);
+  font-size: 14px;
+  margin-top: 8px;
+}
+
+.empty-state {
+  color: var(--text);
+  font-size: 14px;
+  font-style: italic;
+  margin: 12px 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* YouTubeImporterPanel                                                  */
+/* ------------------------------------------------------------------ */
+
+.video-preview {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg);
+}
+
+.video-thumbnail {
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.video-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.video-title {
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--text-h);
+  margin: 0;
+}
+
+.video-duration {
+  font-size: 13px;
+  color: var(--text);
+  margin: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* TimestampSelectorPanel                                                */
+/* ------------------------------------------------------------------ */
+
+.timestamp-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.timestamp-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--code-bg);
+}
+
+.timestamp-label {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--text-h);
+}
+
+/* ------------------------------------------------------------------ */
+/* ProcessingProgressBar                                                 */
+/* ------------------------------------------------------------------ */
+
+.progress-bar-container {
+  margin: 16px 0;
+}
+
+.progress-bar-container--error {
+  border: 1px solid #dc2626;
+  border-radius: 8px;
+  padding: 16px;
+  background: rgba(220, 38, 38, 0.04);
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.progress-step-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+.progress-pct {
+  font-size: 13px;
+  color: var(--text);
+  font-family: var(--mono);
+}
+
+.progress-track {
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.progress-fill--complete {
+  background: #16a34a;
+}
+
+.progress-error {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ------------------------------------------------------------------ */
+/* DancerProfileManager                                                  */
+/* ------------------------------------------------------------------ */
+
+.dancer-count-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.count-adjust {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.count-adjust label {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.count-adjust input {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--text-h);
+
+  &:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+}
+
+.dancer-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dancer-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg);
+}
+
+.dancer-thumbnail {
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.dancer-thumbnail--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 20px;
+  font-weight: 700;
+  border-radius: 6px;
+}
+
+.dancer-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dancer-number {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  font-family: var(--mono);
+}
+
+.dancer-description {
+  font-size: 13px;
+  color: var(--text);
+  margin: 0;
+}
+
+.dancer-name-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.dancer-name-field input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--text-h);
+
+  &:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+}
+
+.saving-indicator {
+  font-size: 12px;
+  color: var(--text);
+  font-style: italic;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* EnvironmentPanel                                                      */
+/* ------------------------------------------------------------------ */
+
+.calibration-details {
+  margin: 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.calibration-row {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 14px;
+}
+
+.calibration-row dt {
+  color: var(--text);
+  min-width: 220px;
+  flex-shrink: 0;
+}
+
+.calibration-row dd {
+  margin: 0;
+  color: var(--text-h);
+  font-weight: 500;
+}
+
+.confidence-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--mono);
+}
+
+.confidence-badge--ok {
+  background: rgba(22, 163, 74, 0.12);
+  color: #16a34a;
+}
+
+.confidence-badge--low {
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+}
+
+.override-section {
+  margin: 12px 0 16px;
+}
+
+.override-section fieldset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.override-section legend {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-h);
+  padding: 0 4px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-h);
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------------ */
+/* FormationViewer                                                       */
+/* ------------------------------------------------------------------ */
+
+.formation-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.formation-entry {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.formation-timestamp {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-h);
+  margin: 0 0 14px;
+  font-family: var(--mono);
+}
+
+.formation-images {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.frame-container,
+.formation-container {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.image-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  margin: 0 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.frame-image,
+.formation-image {
+  max-width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  display: block;
+}
+
+.image-placeholder {
+  height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--code-bg);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.formation-unavailable {
+  height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--code-bg);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  font-style: italic;
+  text-align: center;
+  padding: 16px;
+}
+
+.dancer-overlay {
+  position: absolute;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 10px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.formation-dancer-list {
+  margin-top: 14px;
+  font-size: 13px;
+}
+
+.dancer-list-label {
+  font-weight: 500;
+  color: var(--text-h);
+  margin: 0 0 6px;
+}
+
+.formation-dancer-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.formation-dancer-list li {
+  background: var(--accent-bg);
+  color: var(--accent);
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* ------------------------------------------------------------------ */
+/* SessionListPanel                                                      */
+/* ------------------------------------------------------------------ */
+
+.session-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  flex-wrap: wrap;
+}
+
+.session-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-title {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-h);
+  margin: 0 0 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-meta {
+  font-size: 12px;
+  color: var(--text);
+  margin: 0;
+}
+
+.session-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.confirm-dialog {
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px 16px;
+  background: rgba(220, 38, 38, 0.05);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.confirm-dialog p {
+  margin: 0 0 10px;
+  color: var(--text-h);
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Export page                                                           */
+/* ------------------------------------------------------------------ */
+
+.export-summary {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  background: var(--code-bg);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.export-video-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-h);
+  margin: 0 0 4px;
+}
+
+.export-meta {
+  font-size: 13px;
+  color: var(--text);
+  margin: 0;
+}
+
+.export-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Responsive                                                            */
+/* ------------------------------------------------------------------ */
+
+@media (max-width: 640px) {
+  .app-main {
+    padding: 20px 16px 48px;
+  }
+
+  .panel {
+    padding: 20px 18px;
+  }
+
+  .video-preview {
+    flex-direction: column;
+  }
+
+  .formation-images {
+    flex-direction: column;
+  }
+
+  .session-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .step-indicator-label {
+    display: none;
+  }
+}

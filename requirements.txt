@@ -1,0 +1,6 @@
+yt-dlp==2024.3.10
+ultralytics==8.2.0
+transformers==4.40.0
+torch==2.3.0
+ffmpeg-python==0.2.0
+opencv-python-headless==4.9.0.80
