@@ -11,6 +11,41 @@ import os
 router = APIRouter()
 
 
+def _spread_overlapping(dancers: list[dict], min_dist: float = 0.06) -> list[dict]:
+    """
+    If two dancers have nearly identical x_top/y_top positions (stacked in single file),
+    nudge them apart so they're individually visible on the canvas.
+    """
+    if len(dancers) < 2:
+        return dancers
+
+    result = [d.copy() for d in dancers]
+    for i in range(len(result)):
+        for j in range(i + 1, len(result)):
+            xi = result[i].get("x_top", result[i].get("x", 0.5))
+            yi = result[i].get("y_top", result[i].get("y", 0.5))
+            xj = result[j].get("x_top", result[j].get("x", 0.5))
+            yj = result[j].get("y_top", result[j].get("y", 0.5))
+
+            dx = xj - xi
+            dy = yj - yi
+            dist = (dx**2 + dy**2) ** 0.5
+
+            if dist < min_dist and dist > 0:
+                # push them apart along their axis
+                scale = (min_dist - dist) / 2 / dist
+                result[i]["x_top"] = round(max(0.02, min(0.98, xi - dx * scale)), 4)
+                result[i]["y_top"] = round(max(0.02, min(0.98, yi - dy * scale)), 4)
+                result[j]["x_top"] = round(max(0.02, min(0.98, xj + dx * scale)), 4)
+                result[j]["y_top"] = round(max(0.02, min(0.98, yj + dy * scale)), 4)
+            elif dist == 0:
+                # exactly same position — spread horizontally
+                offset = min_dist * (j - i) * 0.5
+                result[j]["x_top"] = round(min(0.98, xj + offset), 4)
+
+    return result
+
+
 class FormationRequest(BaseModel):
     session_id: str
     frame_id: str  # e.g. "frame_0042"
@@ -97,6 +132,9 @@ def analyze_all_formations(req: ExportRequest):
             with open(out_path, "w") as f:
                 import json as _json
                 _json.dump(dancers, f, indent=2)
+
+            # Spread overlapping dancers so they're always visible
+            dancers = _spread_overlapping(dancers)
 
             results.append({
                 "frame_id": frame_id,
