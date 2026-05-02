@@ -261,7 +261,19 @@ function StageCanvas({ dancers, registry, onDancersChange, addMode, removeMode, 
   useEffect(() => { dancersRef.current = dancers; }, [dancers]);
 
   useEffect(() => {
-    drawCanvas(canvasRef.current, dancers, registry, draggingRef.current?.id);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    drawCanvas(canvas, dancers, registry, draggingRef.current?.id);
+
+    // show hint if empty
+    if (!dancers?.length) {
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#4b5563";
+      ctx.font = "13px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("No dancers detected — use + Add Dancer to place manually", canvas.width / 2, canvas.height / 2);
+    }
   }, [dancers, registry]);
 
   function getPos(e) {
@@ -476,7 +488,7 @@ export default function FormationViewer({ session, formations: initialFormations
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `formations_${session.session_id}.zip`;
+      a.download = `formations_${session.session_id}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } finally {
@@ -536,7 +548,7 @@ export default function FormationViewer({ session, formations: initialFormations
           disabled={exporting}
           className="bg-gray-800 hover:bg-gray-700 disabled:opacity-40 px-4 py-2 rounded-lg text-sm transition"
         >
-          {exporting ? "Exporting…" : "⬇ Download ZIP"}
+          {exporting ? "Exporting…" : "⬇ Download PDF"}
         </button>
       </div>
 

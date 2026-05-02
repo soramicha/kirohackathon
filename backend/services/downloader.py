@@ -17,6 +17,7 @@ def download_video(url: str, session_id: str) -> dict:
         "outtmpl": str(video_path),
         "quiet": True,
         "no_warnings": True,
+        "cookiesfrombrowser": ("chrome",),  # use your logged-in Chrome session
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
