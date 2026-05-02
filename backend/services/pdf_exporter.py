@@ -176,9 +176,10 @@ def _draw_stage(c, dancers: list[dict],
         ny = d.get("y_top", d.get("y", 0.5))
 
         # map normalized coords to stage pixels
-        # y_top: 0 = back (top of stage), 1 = front (bottom) — direct mapping, no inversion
+        # x_top/y_top: 0=left/back, 1=right/front (OpenCV convention)
+        # reportlab y=0 is at BOTTOM of page, so we invert y to put back at top
         px = stage_x0 + nx * stage_w
-        py = stage_y0 + ny * stage_h
+        py = stage_y0 + (1 - ny) * stage_h
 
         # clamp
         r = 8
