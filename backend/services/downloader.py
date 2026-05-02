@@ -1,46 +1,69 @@
 import yt_dlp
 import json
 import os
+import base64
 from pathlib import Path
 
 
 def get_cookie_options():
     """
     Get cookie configuration for yt-dlp to avoid bot detection.
-    Tries multiple methods in order of preference:
-    1. Manual cookie file (cookies.txt)
-    2. Browser cookies (Chrome)
-    3. No cookies (fallback)
+    Priority:
+    1. Environment variable (YOUTUBE_COOKIES_BASE64) - for production
+    2. Manual cookie file (cookies.txt) - for local with manual export
+    3. Browser cookies (Chrome) - for local development
+    4. No cookies (fallback)
     """
     cookie_opts = {}
     
-    # Method 1: Check for manual cookie file
+    # Method 1: Environment variable (PRODUCTION)
+    cookies_b64 = os.getenv("YOUTUBE_COOKIES_BASE64")
+    if cookies_b64:
+        try:
+            cookie_file = Path("cookies.txt")
+            cookies_content = base64.b64decode(cookies_b64)
+            cookie_file.write_bytes(cookies_content)
+            print(f"[downloader] Using cookies from environment variable")
+            cookie_opts["cookiefile"] = str(cookie_file)
+            return cookie_opts
+        except Exception as e:
+            print(f"[downloader] Failed to decode cookies from env: {e}")
+    
+    # Method 2: Manual cookie file
     cookie_file = Path("cookies.txt")
     if cookie_file.exists():
         print(f"[downloader] Using cookie file: {cookie_file}")
         cookie_opts["cookiefile"] = str(cookie_file)
         return cookie_opts
     
-    # Method 2: Try to extract from browser
-    # Check common browser locations
-    browsers_to_try = [
-        ("chrome", None),  # Default Chrome location
-        ("firefox", None),  # Default Firefox location
-        ("edge", None),  # Edge
-    ]
+    # Method 3: Browser cookies (LOCAL DEVELOPMENT ONLY)
+    # Skip browser detection in production environments
+    is_production = os.getenv("RENDER") or os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("VERCEL") or os.getenv("HEROKU_APP_NAME")
     
-    for browser, profile in browsers_to_try:
-        try:
-            # Test if browser cookies are accessible
-            print(f"[downloader] Attempting to use {browser} cookies...")
-            cookie_opts["cookiesfrombrowser"] = (browser, profile) if profile else (browser,)
-            return cookie_opts
-        except Exception as e:
-            print(f"[downloader] Could not access {browser} cookies: {e}")
-            continue
+    if not is_production:
+        # Check common browser locations
+        browsers_to_try = [
+            ("chrome", None),  # Default Chrome location
+            ("firefox", None),  # Default Firefox location
+            ("edge", None),  # Edge
+        ]
+        
+        for browser, profile in browsers_to_try:
+            try:
+                # Test if browser cookies are accessible
+                print(f"[downloader] Attempting to use {browser} cookies...")
+                cookie_opts["cookiesfrombrowser"] = (browser, profile) if profile else (browser,)
+                return cookie_opts
+            except Exception as e:
+                print(f"[downloader] Could not access {browser} cookies: {e}")
+                continue
+    else:
+        print("[downloader] Production environment detected - skipping browser cookie detection")
     
-    # Method 3: No cookies (fallback)
-    print("[downloader] No cookies available - using default (may trigger bot detection)")
+    # Method 4: No cookies (fallback)
+    print("[downloader] WARNING: No cookies available - downloads may trigger bot detection")
+    print("[downloader] For production, set YOUTUBE_COOKIES_BASE64 environment variable")
+    print("[downloader] See RENDER-DEPLOYMENT.md for instructions")
     return {}
 
 
