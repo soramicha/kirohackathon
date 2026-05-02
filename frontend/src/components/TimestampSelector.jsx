@@ -14,6 +14,7 @@ export default function TimestampSelector({ session, dancerCount, onFormationsRe
   const [scanning, setScanning] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState(null);
+  const [preset, setPreset] = useState("balanced");
 
   function parseInput(val) {
     const parts = val.trim().split(":");
@@ -37,7 +38,7 @@ export default function TimestampSelector({ session, dancerCount, onFormationsRe
     setScanning(true);
     setError(null);
     try {
-      const result = await scanFormations(session_id);
+      const result = await scanFormations(session_id, preset);
       const scanned = result.auto_timestamps.map((t) => t.timestamp);
       setTimestamps((prev) => {
         const merged = [...new Set([...prev, ...scanned])].sort((a, b) => a - b);
@@ -127,25 +128,50 @@ export default function TimestampSelector({ session, dancerCount, onFormationsRe
       )}
 
       {/* Auto-scan — secondary option */}
-      <div className="border border-gray-800 rounded-xl p-4 flex items-center justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium">Auto-detect formations</p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Scans the full video for stable groupings (~30-60s)
-          </p>
+      <div className="border border-gray-800 rounded-xl p-4">
+        <div className="flex items-center justify-between gap-4 mb-3">
+          <div>
+            <p className="text-sm font-medium">Auto-detect formations</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Scans the full video for stable groupings (~30-60s)
+            </p>
+          </div>
+          <button
+            onClick={handleAutoScan}
+            disabled={scanning}
+            className="bg-gray-800 hover:bg-gray-700 disabled:opacity-40 px-4 py-2 rounded-lg text-sm transition flex items-center gap-2 flex-shrink-0"
+          >
+            {scanning ? (
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                Scanning…
+              </>
+            ) : "Auto-scan"}
+          </button>
         </div>
-        <button
-          onClick={handleAutoScan}
-          disabled={scanning}
-          className="bg-gray-800 hover:bg-gray-700 disabled:opacity-40 px-4 py-2 rounded-lg text-sm transition flex items-center gap-2 flex-shrink-0"
-        >
-          {scanning ? (
-            <>
-              <div className="w-3.5 h-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-              Scanning…
-            </>
-          ) : "Auto-scan"}
-        </button>
+        
+        {/* Detection preset selector */}
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-gray-500">Detection mode:</span>
+          {["strict", "balanced", "loose"].map((p) => (
+            <button
+              key={p}
+              onClick={() => setPreset(p)}
+              className={`px-2.5 py-1 rounded transition ${
+                preset === p
+                  ? "bg-violet-600 text-white"
+                  : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+              }`}
+            >
+              {p.charAt(0).toUpperCase() + p.slice(1)}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-600 mt-2">
+          {preset === "strict" && "Fewer false positives, might miss quick formations"}
+          {preset === "balanced" && "Good default for most practice videos"}
+          {preset === "loose" && "Catches more formations, may include transitions"}
+        </p>
       </div>
 
       {error && (
