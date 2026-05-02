@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getAll, save } from "@/lib/store";
+import { persistSession } from "@/lib/persist";
 import { TimestampSession } from "@/types";
 
 function parseTime(str: string): number | null {
@@ -49,5 +50,10 @@ export async function POST(req: NextRequest) {
   };
 
   save(session);
+
+  // Persist to outputs/<id>/metadata.json
+  const savedPath = persistSession(session);
+  console.log(`[timestamps] session saved to ${savedPath}`);
+
   return NextResponse.json({ data: session }, { status: 201 });
 }
