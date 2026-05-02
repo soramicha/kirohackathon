@@ -171,13 +171,12 @@ def get_image(session_id: str, filepath: str):
 @router.post("/export")
 def export_session(req: ExportRequest):
     """
-    Generate a PDF of all formations and return it for download.
+    Generate a PDF of all formations using the current session's analyzed data.
     """
     session_dir = Path(f"sessions/{req.session_id}")
     if not session_dir.exists():
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # load formations from saved dancer JSON files
     index_path = session_dir / "frames_index.json"
     if not index_path.exists():
         raise HTTPException(status_code=400, detail="No formations found. Run analysis first.")
@@ -193,10 +192,14 @@ def export_session(req: ExportRequest):
     for entry in frame_index:
         frame_id = entry["frame_id"]
         dancer_path = session_dir / "formations" / f"{frame_id}_dancers.json"
+
         dancers = []
         if dancer_path.exists():
             with open(dancer_path) as f:
-                dancers = json.load(f)
+                raw = json.load(f)
+                # only include dancers that have valid x_top/y_top from current run
+                dancers = [d for d in raw if d.get("x_top") is not None]
+
         formations.append({
             "frame_id": frame_id,
             "timestamp": entry.get("timestamp", 0),
