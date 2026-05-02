@@ -127,16 +127,43 @@ def get_image(session_id: str, filepath: str):
 @router.post("/export")
 def export_session(req: ExportRequest):
     """
-    Bundle all session data (JSON + images) into a zip for download.
+    Generate a PDF of all formations and return it for download.
     """
     session_dir = Path(f"sessions/{req.session_id}")
     if not session_dir.exists():
         raise HTTPException(status_code=404, detail="Session not found")
 
-    zip_path = session_dir / "export.zip"
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for file in session_dir.rglob("*"):
-            if file.suffix in [".jpg", ".json"] and file != zip_path:
-                zf.write(file, file.relative_to(session_dir))
+    # load formations from saved dancer JSON files
+    index_path = session_dir / "frames_index.json"
+    if not index_path.exists():
+        raise HTTPException(status_code=400, detail="No formations found. Run analysis first.")
 
-    return FileResponse(str(zip_path), filename=f"formations_{req.session_id}.zip")
+    import json
+    from services.pdf_exporter import generate_pdf
+    from services.downloader import get_metadata
+
+    with open(index_path) as f:
+        frame_index = json.load(f)
+
+    formations = []
+    for entry in frame_index:
+        frame_id = entry["frame_id"]
+        dancer_path = session_dir / "formations" / f"{frame_id}_dancers.json"
+        dancers = []
+        if dancer_path.exists():
+            with open(dancer_path) as f:
+                dancers = json.load(f)
+        formations.append({
+            "frame_id": frame_id,
+            "timestamp": entry.get("timestamp", 0),
+            "dancers": dancers,
+        })
+
+    metadata = get_metadata(req.session_id)
+    pdf_path = generate_pdf(req.session_id, formations, metadata)
+
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=f"formations_{req.session_id}.pdf"
+    )

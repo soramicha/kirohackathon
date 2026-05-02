@@ -260,7 +260,7 @@ export default function FormationViewer({ session, formations: initialFormations
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `formations_${session.session_id}.zip`;
+      a.download = `formations_${session.session_id}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } finally {
@@ -284,7 +284,7 @@ export default function FormationViewer({ session, formations: initialFormations
           disabled={exporting}
           className="bg-gray-800 hover:bg-gray-700 disabled:opacity-40 px-4 py-2 rounded-lg text-sm transition"
         >
-          {exporting ? "Exporting…" : "⬇ Download ZIP"}
+          {exporting ? "Exporting…" : "⬇ Download PDF"}
         </button>
       </div>
 
