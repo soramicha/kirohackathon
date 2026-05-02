@@ -176,9 +176,9 @@ def _draw_stage(c, dancers: list[dict],
         ny = d.get("y_top", d.get("y", 0.5))
 
         # map normalized coords to stage pixels
-        # y is inverted: 0 = back (top), 1 = front (bottom)
+        # y_top: 0 = back (top of stage), 1 = front (bottom) — direct mapping, no inversion
         px = stage_x0 + nx * stage_w
-        py = stage_y0 + (1 - ny * 0.75 - 0.05) * stage_h
+        py = stage_y0 + ny * stage_h
 
         # clamp
         r = 8
