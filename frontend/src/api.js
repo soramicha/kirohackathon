@@ -22,6 +22,9 @@ export const analyzeAll = (session_id) =>
 export const addFormation = (session_id, timestamp) =>
   api.post("/formations/add-formation", { session_id, timestamp }).then((r) => r.data);
 
+export const deleteFormation = (session_id, frame_id) =>
+  api.post("/formations/delete-formation", { session_id, frame_id }).then((r) => r.data);
+
 export const exportSession = (session_id) =>
   api.post("/formations/export", { session_id }, { responseType: "blob" }).then((r) => r.data);
 

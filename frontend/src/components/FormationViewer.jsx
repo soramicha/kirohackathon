@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { exportSession, imageUrl, addFormation } from "../api";
+import { exportSession, imageUrl, addFormation, deleteFormation } from "../api";
 
 function formatTime(seconds) {
   const m = Math.floor(seconds / 60);
@@ -240,6 +240,8 @@ export default function FormationViewer({ session, formations: initialFormations
   const [newTimestamp, setNewTimestamp] = useState("");
   const [addingFormation, setAddingFormation] = useState(false);
   const [addFormationMessage, setAddFormationMessage] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingFormation, setDeletingFormation] = useState(false);
 
   // Global dancer registry — persists across formations
   const registry = buildRegistry(formations);
@@ -347,6 +349,46 @@ export default function FormationViewer({ session, formations: initialFormations
     }
   }
 
+  async function handleDeleteFormation() {
+    if (!active) return;
+    
+    setDeletingFormation(true);
+    try {
+      await deleteFormation(session.session_id, active.frame_id);
+      
+      // Remove from formations
+      setFormations((prev) => {
+        const updated = prev.filter((f) => f.frame_id !== active.frame_id);
+        
+        // Adjust active index
+        if (updated.length === 0) {
+          setActiveIdx(0);
+        } else if (activeIdx >= updated.length) {
+          setActiveIdx(updated.length - 1);
+        }
+        
+        return updated;
+      });
+
+      setAddFormationMessage({ 
+        type: "success", 
+        text: `Formation deleted at ${formatTime(active.timestamp)}` 
+      });
+      setShowDeleteConfirm(false);
+      
+      setTimeout(() => setAddFormationMessage(null), 3000);
+    } catch (error) {
+      console.error("Delete formation error:", error);
+      setAddFormationMessage({ 
+        type: "error", 
+        text: error.response?.data?.detail || "Failed to delete formation" 
+      });
+      setTimeout(() => setAddFormationMessage(null), 3000);
+    } finally {
+      setDeletingFormation(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6 max-w-6xl mx-auto">
       {/* Header */}
@@ -366,6 +408,14 @@ export default function FormationViewer({ session, formations: initialFormations
           >
             ➕ Add Formation
           </button>
+          {formations.length > 0 && (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg text-sm font-medium transition"
+            >
+              🗑️ Delete Formation
+            </button>
+          )}
           <button
             onClick={handleExport}
             disabled={exporting}
@@ -425,6 +475,48 @@ export default function FormationViewer({ session, formations: initialFormations
                 className="px-4 py-2 rounded-lg text-sm font-medium bg-violet-600 hover:bg-violet-700 disabled:opacity-40 transition"
               >
                 {addingFormation ? "Generating…" : "Generate Formation"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && active && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-red-900/50 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-600/20 flex items-center justify-center">
+                <span className="text-xl">⚠️</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-red-400 mb-1">Delete Formation?</h3>
+                <p className="text-sm text-gray-400">
+                  This will permanently delete the formation at <span className="font-mono text-white">{formatTime(active.timestamp)}</span> with {active.dancers?.length ?? 0} dancers.
+                </p>
+              </div>
+            </div>
+            
+            <div className="bg-red-950/30 border border-red-900/30 rounded-lg p-3 mb-4">
+              <p className="text-xs text-red-300">
+                <strong>Warning:</strong> This action cannot be undone. The frame image, top-down view, and dancer data will be permanently deleted.
+              </p>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deletingFormation}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-800 hover:bg-gray-700 disabled:opacity-40 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteFormation}
+                disabled={deletingFormation}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 disabled:opacity-40 transition"
+              >
+                {deletingFormation ? "Deleting…" : "Delete Formation"}
               </button>
             </div>
           </div>

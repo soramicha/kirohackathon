@@ -25,6 +25,11 @@ class AddFormationRequest(BaseModel):
     timestamp: float  # in seconds
 
 
+class DeleteFormationRequest(BaseModel):
+    session_id: str
+    frame_id: str  # e.g. "frame_00030000"
+
+
 @router.post("/analyze")
 def analyze_formation(req: FormationRequest):
     """
@@ -216,6 +221,58 @@ def add_formation_at_timestamp(req: AddFormationRequest):
             "dancers": dancers,
             "topdown_image": topdown_path,
             "message": "Formation added successfully",
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/delete-formation")
+def delete_formation(req: DeleteFormationRequest):
+    """
+    Delete a formation and its associated files.
+    Removes frame image, top-down view, dancers JSON, and updates the index.
+    """
+    session = get_session(req.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        import json
+        
+        session_dir = Path(f"sessions/{req.session_id}")
+        
+        # Delete frame image
+        frame_path = session_dir / "frames" / f"{req.frame_id}.jpg"
+        if frame_path.exists():
+            frame_path.unlink()
+        
+        # Delete top-down image
+        topdown_path = session_dir / "formations" / f"{req.frame_id}_topdown.jpg"
+        if topdown_path.exists():
+            topdown_path.unlink()
+        
+        # Delete dancers JSON
+        dancers_path = session_dir / "formations" / f"{req.frame_id}_dancers.json"
+        if dancers_path.exists():
+            dancers_path.unlink()
+        
+        # Update frames_index.json
+        index_path = session_dir / "frames_index.json"
+        if index_path.exists():
+            with open(index_path) as f:
+                frame_index = json.load(f)
+            
+            # Remove the frame from index
+            frame_index = [e for e in frame_index if e["frame_id"] != req.frame_id]
+            
+            with open(index_path, "w") as f:
+                json.dump(frame_index, f, indent=2)
+        
+        return {
+            "session_id": req.session_id,
+            "frame_id": req.frame_id,
+            "message": "Formation deleted successfully",
         }
         
     except Exception as e:
