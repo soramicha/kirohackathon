@@ -8,3 +8,4 @@ torch>=2.0.0
 torchvision>=0.15.0
 python-multipart==0.0.9
 lap==0.5.13
+reportlab==4.2.2

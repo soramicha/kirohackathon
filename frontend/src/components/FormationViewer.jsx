@@ -125,7 +125,7 @@ function drawCanvas(canvas, dancers, registry, draggingId) {
 function toCanvas(nx, ny, W, H) {
   return {
     cx: PAD + nx * (W - PAD * 2),
-    cy: PAD + ny * (H - PAD * 2) * 0.75 + (H - PAD * 2) * 0.05,
+    cy: PAD + ny * (H - PAD * 2),  // y_top: 0=back(top), 1=front(bottom) — no inversion needed
   };
 }
 
@@ -133,7 +133,7 @@ function toCanvas(nx, ny, W, H) {
 function fromCanvas(cx, cy, W, H) {
   return {
     nx: (cx - PAD) / (W - PAD * 2),
-    ny: ((cy - PAD - (H - PAD * 2) * 0.05) / ((H - PAD * 2) * 0.75)),
+    ny: (cy - PAD) / (H - PAD * 2),
   };
 }
 
@@ -145,7 +145,19 @@ function StageCanvas({ dancers, registry, onDancersChange, addMode }) {
   useEffect(() => { dancersRef.current = dancers; }, [dancers]);
 
   useEffect(() => {
-    drawCanvas(canvasRef.current, dancers, registry, draggingRef.current?.id);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    drawCanvas(canvas, dancers, registry, draggingRef.current?.id);
+
+    // show hint if empty
+    if (!dancers?.length) {
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#4b5563";
+      ctx.font = "13px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("No dancers detected — use + Add Dancer to place manually", canvas.width / 2, canvas.height / 2);
+    }
   }, [dancers, registry]);
 
   function getPos(e) {
@@ -208,7 +220,7 @@ function StageCanvas({ dancers, registry, onDancersChange, addMode }) {
   return (
     <canvas
       ref={canvasRef}
-      width={600}
+      width={720}
       height={480}
       className={`w-full rounded-lg ${addMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
       style={{ background: "#111318" }}
@@ -227,8 +239,8 @@ export default function FormationViewer({ session, formations: initialFormations
       ...f,
       dancers: (f.dancers || []).map((d) => ({
         ...d,
-        cx: PAD + (d.x_top ?? d.x) * (600 - PAD * 2),
-        cy: PAD + (d.y_top ?? d.y) * (480 - PAD * 2) * 0.75 + (480 - PAD * 2) * 0.05,
+        cx: PAD + (d.x_top ?? d.x) * (720 - PAD * 2),
+        cy: PAD + (d.y_top ?? d.y) * (480 - PAD * 2),
       })),
     }));
   });
@@ -260,7 +272,7 @@ export default function FormationViewer({ session, formations: initialFormations
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `formations_${session.session_id}.zip`;
+      a.download = `formations_${session.session_id}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } finally {
@@ -284,7 +296,7 @@ export default function FormationViewer({ session, formations: initialFormations
           disabled={exporting}
           className="bg-gray-800 hover:bg-gray-700 disabled:opacity-40 px-4 py-2 rounded-lg text-sm transition"
         >
-          {exporting ? "Exporting…" : "⬇ Download ZIP"}
+          {exporting ? "Exporting…" : "⬇ Download PDF"}
         </button>
       </div>
 
