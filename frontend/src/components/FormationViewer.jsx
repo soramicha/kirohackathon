@@ -253,7 +253,7 @@ function fromCanvas(cx, cy, W, H) {
   return { nx, ny };
 }
 
-function StageCanvas({ dancers, registry, onDancersChange, addMode }) {
+function StageCanvas({ dancers, registry, onDancersChange, addMode, removeMode, onRemoveDancer }) {
   const canvasRef = useRef(null);
   const draggingRef = useRef(null);
   const dancersRef = useRef(dancers);
@@ -284,7 +284,15 @@ function StageCanvas({ dancers, registry, onDancersChange, addMode }) {
   function handleMouseDown(e) {
     const { x, y } = getPos(e);
     const hit = hitTest(x, y);
-    if (hit) {
+    
+    if (hit && removeMode) {
+      // Remove the clicked dancer
+      onRemoveDancer(hit.id);
+      return;
+    }
+    
+    if (hit && !removeMode) {
+      // Start dragging the dancer
       draggingRef.current = { id: hit.id, offsetX: x - hit.cx, offsetY: y - hit.cy };
     } else if (addMode) {
       // Add new dancer at click position
@@ -348,7 +356,11 @@ function StageCanvas({ dancers, registry, onDancersChange, addMode }) {
       ref={canvasRef}
       width={780}
       height={480}
-      className={`w-full rounded-lg ${addMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
+      className={`w-full rounded-lg ${
+        addMode ? "cursor-crosshair" : 
+        removeMode ? "cursor-pointer" : 
+        "cursor-grab active:cursor-grabbing"
+      }`}
       style={{ background: "#111318" }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -376,9 +388,11 @@ export default function FormationViewer({ session, formations: initialFormations
 
   const [activeIdx, setActiveIdx] = useState(0);
   const [addMode, setAddMode] = useState(false);
+  const [removeMode, setRemoveMode] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [editingDancer, setEditingDancer] = useState(null);
   const [editingName, setEditingName] = useState("");
+  const [lastRemovedDancer, setLastRemovedDancer] = useState(null);
 
   // Global dancer registry — persists across formations
   const registry = buildRegistry(formations);
@@ -391,9 +405,68 @@ export default function FormationViewer({ session, formations: initialFormations
     );
   }
 
-  function removeLastDancer() {
+  function removeDancer(dancerId) {
     if (!active?.dancers?.length) return;
-    handleDancersChange(active.dancers.slice(0, -1));
+    const dancerToRemove = active.dancers.find(d => d.id === dancerId);
+    if (dancerToRemove) {
+      setLastRemovedDancer(dancerToRemove);
+      const updatedDancers = active.dancers.filter(d => d.id !== dancerId);
+      handleDancersChange(updatedDancers);
+      setRemoveMode(false); // Exit remove mode after removing a dancer
+    }
+  }
+
+  function undoRemove() {
+    if (lastRemovedDancer) {
+      const updatedDancers = [...active.dancers, lastRemovedDancer];
+      handleDancersChange(updatedDancers);
+      setLastRemovedDancer(null);
+    }
+  }
+
+  function toggleAddMode() {
+    setAddMode(!addMode);
+    setRemoveMode(false); // Exit remove mode when entering add mode
+  }
+
+  function toggleRemoveMode() {
+    setRemoveMode(!removeMode);
+    setAddMode(false); // Exit add mode when entering remove mode
+  }
+
+  // Get missing dancers (dancers that exist in registry but not in current formation)
+  function getMissingDancers() {
+    const currentDancerIds = new Set(active?.dancers?.map(d => d.id) || []);
+    return Object.values(registry).filter(d => !currentDancerIds.has(d.id));
+  }
+
+  function addBackDancer(dancerId) {
+    const dancerFromRegistry = registry[dancerId];
+    if (dancerFromRegistry) {
+      // Place the dancer in offstage area
+      const existingOffstage = active.dancers.filter(d => d.offstage || d.x > 1.0).length;
+      const offstage_x = 1.2 + (existingOffstage % 2) * 0.15;
+      const offstage_y = 0.1 + (existingOffstage * 0.12);
+      
+      const { cx, cy } = toCanvas(offstage_x, offstage_y, 780, 480);
+      
+      const restoredDancer = {
+        id: dancerId,
+        label: dancerFromRegistry.label,
+        x: offstage_x,
+        y: offstage_y,
+        cx,
+        cy,
+        bbox: [0, 0, 0, 0],
+        keypoints: [],
+        confidence: 0.0,
+        manual: true,
+        offstage: true
+      };
+      
+      const updatedDancers = [...active.dancers, restoredDancer];
+      handleDancersChange(updatedDancers);
+    }
   }
 
   async function handleExport() {
@@ -472,7 +545,7 @@ export default function FormationViewer({ session, formations: initialFormations
         {formations.map((f, i) => (
           <button
             key={f.frame_id}
-            onClick={() => { setActiveIdx(i); setAddMode(false); }}
+            onClick={() => { setActiveIdx(i); setAddMode(false); setRemoveMode(false); setLastRemovedDancer(null); }}
             className={`flex-shrink-0 flex flex-col items-center gap-1 px-3 py-2 rounded-xl border transition ${
               i === activeIdx
                 ? "border-violet-500 bg-violet-950 text-white"
@@ -512,26 +585,69 @@ export default function FormationViewer({ session, formations: initialFormations
               </p>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setAddMode((v) => !v)}
+                  onClick={toggleAddMode}
                   className={`px-3 py-1 rounded-lg text-xs font-medium transition ${
                     addMode
                       ? "bg-violet-600 text-white"
                       : "bg-gray-800 text-gray-400 hover:bg-gray-700"
                   }`}
                 >
-                  {addMode ? "✕ Cancel" : "+ Add Dancer"}
+                  {addMode ? "💾 Save" : "+ Add Dancer"}
                 </button>
                 <button
-                  onClick={removeLastDancer}
-                  className="px-3 py-1 rounded-lg text-xs font-medium bg-gray-800 text-gray-400 hover:bg-gray-700 transition"
+                  onClick={toggleRemoveMode}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition ${
+                    removeMode
+                      ? "bg-red-600 text-white"
+                      : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                  }`}
                 >
-                  − Remove
+                  {removeMode ? "✕ Cancel" : "− Remove"}
                 </button>
+                {lastRemovedDancer && (
+                  <button
+                    onClick={undoRemove}
+                    className="px-3 py-1 rounded-lg text-xs font-medium bg-yellow-600 text-white hover:bg-yellow-500 transition"
+                  >
+                    ↶ Undo Remove
+                  </button>
+                )}
               </div>
             </div>
             {addMode && (
-              <p className="text-xs text-violet-400 bg-violet-950 rounded-lg px-3 py-1.5">
-                Click anywhere on the stage to place a dancer
+              <div className="space-y-2">
+                <p className="text-xs text-violet-400 bg-violet-950 rounded-lg px-3 py-1.5">
+                  Click anywhere on the stage to place a new dancer
+                </p>
+                {getMissingDancers().length > 0 && (
+                  <div className="bg-gray-800 rounded-lg p-3">
+                    <p className="text-xs font-medium text-gray-300 mb-2">
+                      Or add back missing dancers:
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {getMissingDancers().map((dancer) => (
+                        <button
+                          key={dancer.id}
+                          onClick={() => addBackDancer(dancer.id)}
+                          className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 rounded-lg px-2 py-1 text-xs transition"
+                        >
+                          <span
+                            className="w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                            style={{ background: dancer.color }}
+                          >
+                            {dancer.id}
+                          </span>
+                          <span className="text-gray-200">{dancer.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {removeMode && (
+              <p className="text-xs text-red-400 bg-red-950 rounded-lg px-3 py-1.5">
+                Click on any dancer to remove them
               </p>
             )}
             <div className="rounded-xl overflow-hidden border border-gray-800">
@@ -540,6 +656,8 @@ export default function FormationViewer({ session, formations: initialFormations
                 registry={registry}
                 onDancersChange={handleDancersChange}
                 addMode={addMode}
+                removeMode={removeMode}
+                onRemoveDancer={removeDancer}
               />
             </div>
           </div>
