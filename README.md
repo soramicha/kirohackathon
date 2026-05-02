@@ -27,6 +27,11 @@ python backend/main.py
 ```
 Backend runs on `http://localhost:8000`. YOLOv11 model (~7MB) downloads automatically on first startup.
 
+> **Note:** If you see `YOLO warmup failed` on startup, run:
+> ```bash
+> pip install torch torchvision ultralytics>=8.4.0
+> ```
+
 ### Frontend Setup
 ```bash
 cd frontend
