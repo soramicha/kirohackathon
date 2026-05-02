@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+:root {
+  --background: #000000;
+  --foreground: #f0f0f0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Neon glow utilities */
+.neon-blue {
+  text-shadow: 0 0 8px #00d4ff, 0 0 20px #00d4ff, 0 0 40px #00d4ff;
+}
+
+.neon-orange {
+  text-shadow: 0 0 8px #ff6a00, 0 0 20px #ff6a00, 0 0 40px #ff6a00;
+}
+
+.glow-blue {
+  box-shadow: 0 0 8px #00d4ff, 0 0 20px rgba(0, 212, 255, 0.3);
+}
+
+.glow-orange {
+  box-shadow: 0 0 8px #ff6a00, 0 0 20px rgba(255, 106, 0, 0.3);
+}
+
+.glow-border-blue {
+  box-shadow: 0 0 0 1px #00d4ff, 0 0 12px rgba(0, 212, 255, 0.25);
+}
+
+.glow-border-orange {
+  box-shadow: 0 0 0 1px #ff6a00, 0 0 12px rgba(255, 106, 0, 0.25);
+}
+
+/* Animated gradient border for the card */
+.card-glow {
+  position: relative;
+}
+
+.card-glow::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 1rem;
+  background: linear-gradient(135deg, #00d4ff, #ff6a00, #00d4ff);
+  background-size: 200% 200%;
+  animation: borderSpin 4s linear infinite;
+  z-index: -1;
+  opacity: 0.6;
+}
+
+@keyframes borderSpin {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Input focus glow */
+input:focus {
+  outline: none;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #0a0a0a; }
+::-webkit-scrollbar-thumb { background: #00d4ff44; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #00d4ff88; }
