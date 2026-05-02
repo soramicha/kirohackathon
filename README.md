@@ -8,9 +8,43 @@
 
 Cal Poly's showcases bring together dozens of non-audition dance groups on one stage. Student choreographers are managing 50–80 people with no professional tools — drawing diagrams by hand, pausing and rewinding videos, guessing at spacing. We fix that.
 
+## Getting Started
+
+### Prerequisites
+- Python 3.12+
+- Node.js 20.17+
+- ffmpeg (required for video merging)
+
+Install ffmpeg on Windows:
+```
+winget install ffmpeg
+```
+
+### Backend Setup
+```bash
+pip install -r backend/requirements.txt
+python backend/main.py
+```
+Backend runs on `http://localhost:8000`. YOLOv11 model (~7MB) downloads automatically on first startup.
+
+### Frontend Setup
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Frontend runs on `http://localhost:5173`.
+
+### Environment
+Copy the example env file:
+```bash
+cp frontend/.env.example frontend/.env
+```
+Default points to `http://localhost:8000` — no changes needed for local dev.
+
 ---
 
-## Stage 1: Core MVP
+
 
 ### 1. Video Ingestion
 - [ ] Accept a YouTube URL as input
