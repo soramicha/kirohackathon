@@ -18,7 +18,6 @@ def download_video(url: str, session_id: str) -> dict:
         "outtmpl": str(video_path),
         "quiet": True,
         "no_warnings": True,
-        "ffmpeg_location": r"C:\Users\pragt\AppData\Local\Microsoft\WinGet\Links",
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
