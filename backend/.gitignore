@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 .env
 *.pt
+
+# Cookie files - NEVER commit these!
+cookies.txt
+cookies*.txt
