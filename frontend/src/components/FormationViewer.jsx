@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { exportSession, imageUrl } from "../api";
+import { exportSession, imageUrl, addFormation } from "../api";
 
 function formatTime(seconds) {
   const m = Math.floor(seconds / 60);
@@ -236,6 +236,10 @@ export default function FormationViewer({ session, formations: initialFormations
   const [activeIdx, setActiveIdx] = useState(0);
   const [addMode, setAddMode] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [showAddFormation, setShowAddFormation] = useState(false);
+  const [newTimestamp, setNewTimestamp] = useState("");
+  const [addingFormation, setAddingFormation] = useState(false);
+  const [addFormationMessage, setAddFormationMessage] = useState(null);
 
   // Global dancer registry — persists across formations
   const registry = buildRegistry(formations);
@@ -268,6 +272,81 @@ export default function FormationViewer({ session, formations: initialFormations
     }
   }
 
+  async function handleAddFormation() {
+    // Parse timestamp (supports formats like "1:23" or "83" seconds)
+    let timestampSeconds;
+    if (newTimestamp.includes(":")) {
+      const parts = newTimestamp.split(":");
+      const minutes = parseInt(parts[0]) || 0;
+      const seconds = parseInt(parts[1]) || 0;
+      timestampSeconds = minutes * 60 + seconds;
+    } else {
+      timestampSeconds = parseFloat(newTimestamp);
+    }
+
+    if (isNaN(timestampSeconds) || timestampSeconds < 0) {
+      setAddFormationMessage({ type: "error", text: "Invalid timestamp format" });
+      setTimeout(() => setAddFormationMessage(null), 3000);
+      return;
+    }
+
+    // Check if timestamp exceeds video duration
+    if (session.metadata.duration && timestampSeconds > session.metadata.duration) {
+      setAddFormationMessage({ 
+        type: "error", 
+        text: `Timestamp exceeds video duration (${formatTime(session.metadata.duration)})` 
+      });
+      setTimeout(() => setAddFormationMessage(null), 3000);
+      return;
+    }
+
+    setAddingFormation(true);
+    try {
+      const result = await addFormation(session.session_id, timestampSeconds);
+      
+      // Convert dancers to canvas coordinates
+      const newFormation = {
+        frame_id: result.frame_id,
+        timestamp: result.timestamp,
+        dancers: result.dancers.map((d) => ({
+          ...d,
+          cx: PAD + (d.x_top ?? d.x) * (600 - PAD * 2),
+          cy: PAD + (d.y_top ?? d.y) * (480 - PAD * 2) * 0.75 + (480 - PAD * 2) * 0.05,
+        })),
+      };
+
+      // Add to formations and sort by timestamp
+      setFormations((prev) => {
+        const updated = [...prev, newFormation];
+        updated.sort((a, b) => a.timestamp - b.timestamp);
+        
+        // Find and set the index of the newly added formation
+        const newIdx = updated.findIndex((f) => f.frame_id === result.frame_id);
+        setActiveIdx(newIdx);
+        
+        return updated;
+      });
+
+      setAddFormationMessage({ 
+        type: "success", 
+        text: `Formation added at ${formatTime(timestampSeconds)} (${result.dancer_count} dancers)` 
+      });
+      setShowAddFormation(false);
+      setNewTimestamp("");
+      
+      setTimeout(() => setAddFormationMessage(null), 3000);
+    } catch (error) {
+      console.error("Add formation error:", error);
+      setAddFormationMessage({ 
+        type: "error", 
+        text: error.response?.data?.detail || "Failed to add formation" 
+      });
+      setTimeout(() => setAddFormationMessage(null), 3000);
+    } finally {
+      setAddingFormation(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6 max-w-6xl mx-auto">
       {/* Header */}
@@ -277,16 +356,93 @@ export default function FormationViewer({ session, formations: initialFormations
           <p className="text-sm text-gray-400">
             {formations.length} formation{formations.length !== 1 ? "s" : ""}
             {active ? ` · ${active.dancers?.length ?? 0} dancers` : ""}
+            {session.metadata.duration && ` · ${formatTime(session.metadata.duration)} total`}
           </p>
         </div>
-        <button
-          onClick={handleExport}
-          disabled={exporting}
-          className="bg-gray-800 hover:bg-gray-700 disabled:opacity-40 px-4 py-2 rounded-lg text-sm transition"
-        >
-          {exporting ? "Exporting…" : "⬇ Download ZIP"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowAddFormation(true)}
+            className="bg-violet-600 hover:bg-violet-700 px-4 py-2 rounded-lg text-sm font-medium transition"
+          >
+            ➕ Add Formation
+          </button>
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="bg-gray-800 hover:bg-gray-700 disabled:opacity-40 px-4 py-2 rounded-lg text-sm transition"
+          >
+            {exporting ? "Exporting…" : "⬇ Download ZIP"}
+          </button>
+        </div>
       </div>
+
+      {/* Add Formation Modal */}
+      {showAddFormation && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <h3 className="text-lg font-semibold mb-4">Add New Formation</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              Enter the timestamp where you want to generate a new formation. The system will automatically detect dancers at that moment.
+            </p>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Timestamp
+              </label>
+              <input
+                type="text"
+                value={newTimestamp}
+                onChange={(e) => setNewTimestamp(e.target.value)}
+                placeholder="e.g., 1:23 or 83"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !addingFormation) {
+                    handleAddFormation();
+                  }
+                }}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Format: MM:SS or seconds (e.g., "1:23" or "83")
+                {session.metadata.duration && ` · Max: ${formatTime(session.metadata.duration)}`}
+              </p>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => {
+                  setShowAddFormation(false);
+                  setNewTimestamp("");
+                }}
+                disabled={addingFormation}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-800 hover:bg-gray-700 disabled:opacity-40 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddFormation}
+                disabled={addingFormation || !newTimestamp.trim()}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-violet-600 hover:bg-violet-700 disabled:opacity-40 transition"
+              >
+                {addingFormation ? "Generating…" : "Generate Formation"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success/Error Message */}
+      {addFormationMessage && (
+        <div
+          className={`fixed top-4 right-4 px-4 py-3 rounded-lg shadow-lg z-50 ${
+            addFormationMessage.type === "success"
+              ? "bg-green-600 text-white"
+              : "bg-red-600 text-white"
+          }`}
+        >
+          {addFormationMessage.text}
+        </div>
+      )}
 
       {/* Formation timeline */}
       <div className="flex gap-2 overflow-x-auto pb-1">
