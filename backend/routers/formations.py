@@ -51,8 +51,9 @@ class FormationRequest(BaseModel):
     frame_id: str  # e.g. "frame_0042"
 
 
-class ExportRequest(BaseModel):
+class AnalyzeAllRequest(BaseModel):
     session_id: str
+    dancer_count: int = None  # optional, for manual override
 
 
 @router.post("/analyze")
@@ -83,8 +84,12 @@ def analyze_formation(req: FormationRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class ExportRequest(BaseModel):
+    session_id: str
+
+
 @router.post("/analyze-all")
-def analyze_all_formations(req: ExportRequest):
+def analyze_all_formations(req: AnalyzeAllRequest):
     """
     Run YOLOv11 per-frame detection with appearance-based ID matching
     across formations. Fast and consistent dancer IDs.
@@ -111,6 +116,7 @@ def analyze_all_formations(req: ExportRequest):
     results = []
     prev_dancers = None
     prev_img = None
+    is_first_frame = True
 
     for entry in frame_index:
         frame_id = entry["frame_id"]
@@ -119,11 +125,41 @@ def analyze_all_formations(req: ExportRequest):
 
         try:
             curr_img = cv2.imread(str(frame_path))
-            dancers = detect_dancers(req.session_id, frame_id)
+            # Only add offstage dancers to the first frame
+            expected_count = req.dancer_count if is_first_frame else None
+            dancers = detect_dancers(req.session_id, frame_id, expected_count)
 
             # Match IDs to previous formation using appearance + proximity
             if prev_dancers is not None and prev_img is not None:
-                dancers = match_dancers(prev_dancers, dancers, prev_img, curr_img)
+                dancers = match_dancers(prev_dancers, dancers, prev_img, curr_img, req.dancer_count)
+            elif req.dancer_count and len(dancers) < req.dancer_count:
+                # First formation or no previous dancers - ensure we have expected count
+                missing_count = req.dancer_count - len(dancers)
+                used_ids = {d["id"] for d in dancers} if dancers else set()
+                next_new_id = max(used_ids, default=0) + 1
+                
+                # Find the next available ID that's not already used
+                while next_new_id in used_ids:
+                    next_new_id += 1
+                
+                # Add missing dancers to offstage area
+                for i in range(missing_count):
+                    # Simple vertical spacing with good padding
+                    offstage_x = 1.2 + (i % 2) * 0.15  # 2 columns with good spacing
+                    offstage_y = 0.1 + (i * 0.12)      # vertical spacing with padding
+                    
+                    dancers.append({
+                        "id": next_new_id,
+                        "label": f"Dancer {next_new_id} (offstage)",
+                        "x": offstage_x,
+                        "y": offstage_y,
+                        "bbox": [0, 0, 0, 0],  # no actual detection
+                        "keypoints": [],
+                        "confidence": 0.0,
+                        "manual": True,  # flag to indicate this was manually added
+                        "offstage": True  # flag to indicate this is offstage
+                    })
+                    next_new_id += 1
 
             topdown_path = generate_topdown(req.session_id, frame_id, dancers)
 
@@ -146,15 +182,38 @@ def analyze_all_formations(req: ExportRequest):
 
             prev_dancers = dancers
             prev_img = curr_img
+            is_first_frame = False
 
         except Exception as e:
+            # Even when there's an error, ensure we have the expected number of dancers
+            error_dancers = []
+            if req.dancer_count:
+                for i in range(req.dancer_count):
+                    # Simple vertical spacing with good padding
+                    offstage_x = 1.2 + (i % 2) * 0.15  # 2 columns with good spacing
+                    offstage_y = 0.1 + (i * 0.12)      # vertical spacing with padding
+                    
+                    error_dancers.append({
+                        "id": i + 1,
+                        "label": f"Dancer {i + 1} (offstage)",
+                        "x": offstage_x,
+                        "y": offstage_y,
+                        "bbox": [0, 0, 0, 0],  # no actual detection
+                        "keypoints": [],
+                        "confidence": 0.0,
+                        "manual": True,  # flag to indicate this was manually added
+                        "offstage": True,  # flag to indicate this is offstage
+                        "error_generated": True  # flag to indicate this was created due to error
+                    })
+            
             results.append({
                 "frame_id": frame_id,
                 "timestamp": ts,
-                "dancer_count": 0,
-                "dancers": [],
+                "dancer_count": len(error_dancers),
+                "dancers": error_dancers,
                 "error": str(e),
             })
+            is_first_frame = False
 
     return {"session_id": req.session_id, "formations": results}
 

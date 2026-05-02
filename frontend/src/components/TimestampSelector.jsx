@@ -7,7 +7,7 @@ function formatTime(seconds) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export default function TimestampSelector({ session, onFormationsReady }) {
+export default function TimestampSelector({ session, dancerCount, onFormationsReady }) {
   const { session_id, metadata } = session;
   const [timestamps, setTimestamps] = useState([]); // list of numbers (seconds)
   const [customInput, setCustomInput] = useState("");
@@ -57,7 +57,7 @@ export default function TimestampSelector({ session, onFormationsReady }) {
     setError(null);
     try {
       await extractFrames(session_id, timestamps);
-      const result = await analyzeAll(session_id);
+      const result = await analyzeAll(session_id, dancerCount);
       onFormationsReady(result.formations);
     } catch (err) {
       setError(err.response?.data?.detail || "Analysis failed. Please try again.");
