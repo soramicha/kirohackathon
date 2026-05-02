@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 .env
 *.pt
+cookies.txt
+
+# uv
+.venv/
+uv.lock

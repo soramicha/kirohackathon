@@ -11,13 +11,49 @@ import os
 router = APIRouter()
 
 
+def _spread_overlapping(dancers: list[dict], min_dist: float = 0.06) -> list[dict]:
+    """
+    If two dancers have nearly identical x_top/y_top positions (stacked in single file),
+    nudge them apart so they're individually visible on the canvas.
+    """
+    if len(dancers) < 2:
+        return dancers
+
+    result = [d.copy() for d in dancers]
+    for i in range(len(result)):
+        for j in range(i + 1, len(result)):
+            xi = result[i].get("x_top", result[i].get("x", 0.5))
+            yi = result[i].get("y_top", result[i].get("y", 0.5))
+            xj = result[j].get("x_top", result[j].get("x", 0.5))
+            yj = result[j].get("y_top", result[j].get("y", 0.5))
+
+            dx = xj - xi
+            dy = yj - yi
+            dist = (dx**2 + dy**2) ** 0.5
+
+            if dist < min_dist and dist > 0:
+                # push them apart along their axis
+                scale = (min_dist - dist) / 2 / dist
+                result[i]["x_top"] = round(max(0.02, min(0.98, xi - dx * scale)), 4)
+                result[i]["y_top"] = round(max(0.02, min(0.98, yi - dy * scale)), 4)
+                result[j]["x_top"] = round(max(0.02, min(0.98, xj + dx * scale)), 4)
+                result[j]["y_top"] = round(max(0.02, min(0.98, yj + dy * scale)), 4)
+            elif dist == 0:
+                # exactly same position — spread horizontally
+                offset = min_dist * (j - i) * 0.5
+                result[j]["x_top"] = round(min(0.98, xj + offset), 4)
+
+    return result
+
+
 class FormationRequest(BaseModel):
     session_id: str
     frame_id: str  # e.g. "frame_0042"
 
 
-class ExportRequest(BaseModel):
+class AnalyzeAllRequest(BaseModel):
     session_id: str
+    dancer_count: int = None  # optional, for manual override
 
 
 class AddFormationRequest(BaseModel):
@@ -58,8 +94,12 @@ def analyze_formation(req: FormationRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class ExportRequest(BaseModel):
+    session_id: str
+
+
 @router.post("/analyze-all")
-def analyze_all_formations(req: ExportRequest):
+def analyze_all_formations(req: AnalyzeAllRequest):
     """
     Run YOLOv11 per-frame detection with appearance-based ID matching
     across formations. Fast and consistent dancer IDs.
@@ -86,6 +126,7 @@ def analyze_all_formations(req: ExportRequest):
     results = []
     prev_dancers = None
     prev_img = None
+    is_first_frame = True
 
     for entry in frame_index:
         frame_id = entry["frame_id"]
@@ -94,13 +135,52 @@ def analyze_all_formations(req: ExportRequest):
 
         try:
             curr_img = cv2.imread(str(frame_path))
-            dancers = detect_dancers(req.session_id, frame_id)
+            # Only add offstage dancers to the first frame
+            expected_count = req.dancer_count if is_first_frame else None
+            dancers = detect_dancers(req.session_id, frame_id, expected_count)
 
             # Match IDs to previous formation using appearance + proximity
             if prev_dancers is not None and prev_img is not None:
-                dancers = match_dancers(prev_dancers, dancers, prev_img, curr_img)
+                dancers = match_dancers(prev_dancers, dancers, prev_img, curr_img, req.dancer_count)
+            elif req.dancer_count and len(dancers) < req.dancer_count:
+                # First formation or no previous dancers - ensure we have expected count
+                missing_count = req.dancer_count - len(dancers)
+                used_ids = {d["id"] for d in dancers} if dancers else set()
+                next_new_id = max(used_ids, default=0) + 1
+                
+                # Find the next available ID that's not already used
+                while next_new_id in used_ids:
+                    next_new_id += 1
+                
+                # Add missing dancers to offstage area
+                for i in range(missing_count):
+                    # Simple vertical spacing with good padding
+                    offstage_x = 1.2 + (i % 2) * 0.15  # 2 columns with good spacing
+                    offstage_y = 0.1 + (i * 0.12)      # vertical spacing with padding
+                    
+                    dancers.append({
+                        "id": next_new_id,
+                        "label": f"Dancer {next_new_id} (offstage)",
+                        "x": offstage_x,
+                        "y": offstage_y,
+                        "bbox": [0, 0, 0, 0],  # no actual detection
+                        "keypoints": [],
+                        "confidence": 0.0,
+                        "manual": True,  # flag to indicate this was manually added
+                        "offstage": True  # flag to indicate this is offstage
+                    })
+                    next_new_id += 1
 
             topdown_path = generate_topdown(req.session_id, frame_id, dancers)
+
+            # Save dancers AFTER topdown so x_top/y_top are persisted
+            out_path = Path(f"sessions/{req.session_id}/formations/{frame_id}_dancers.json")
+            with open(out_path, "w") as f:
+                import json as _json
+                _json.dump(dancers, f, indent=2)
+
+            # Spread overlapping dancers so they're always visible
+            dancers = _spread_overlapping(dancers)
 
             results.append({
                 "frame_id": frame_id,
@@ -112,15 +192,38 @@ def analyze_all_formations(req: ExportRequest):
 
             prev_dancers = dancers
             prev_img = curr_img
+            is_first_frame = False
 
         except Exception as e:
+            # Even when there's an error, ensure we have the expected number of dancers
+            error_dancers = []
+            if req.dancer_count:
+                for i in range(req.dancer_count):
+                    # Simple vertical spacing with good padding
+                    offstage_x = 1.2 + (i % 2) * 0.15  # 2 columns with good spacing
+                    offstage_y = 0.1 + (i * 0.12)      # vertical spacing with padding
+                    
+                    error_dancers.append({
+                        "id": i + 1,
+                        "label": f"Dancer {i + 1} (offstage)",
+                        "x": offstage_x,
+                        "y": offstage_y,
+                        "bbox": [0, 0, 0, 0],  # no actual detection
+                        "keypoints": [],
+                        "confidence": 0.0,
+                        "manual": True,  # flag to indicate this was manually added
+                        "offstage": True,  # flag to indicate this is offstage
+                        "error_generated": True  # flag to indicate this was created due to error
+                    })
+            
             results.append({
                 "frame_id": frame_id,
                 "timestamp": ts,
-                "dancer_count": 0,
-                "dancers": [],
+                "dancer_count": len(error_dancers),
+                "dancers": error_dancers,
                 "error": str(e),
             })
+            is_first_frame = False
 
     return {"session_id": req.session_id, "formations": results}
 
@@ -282,16 +385,46 @@ def delete_formation(req: DeleteFormationRequest):
 @router.post("/export")
 def export_session(req: ExportRequest):
     """
-    Bundle all session data (JSON + images) into a zip for download.
+    Generate a PDF of all formations using the current session's analyzed data.
     """
     session_dir = Path(f"sessions/{req.session_id}")
     if not session_dir.exists():
         raise HTTPException(status_code=404, detail="Session not found")
 
-    zip_path = session_dir / "export.zip"
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for file in session_dir.rglob("*"):
-            if file.suffix in [".jpg", ".json"] and file != zip_path:
-                zf.write(file, file.relative_to(session_dir))
+    index_path = session_dir / "frames_index.json"
+    if not index_path.exists():
+        raise HTTPException(status_code=400, detail="No formations found. Run analysis first.")
 
-    return FileResponse(str(zip_path), filename=f"formations_{req.session_id}.zip")
+    import json
+    from services.pdf_exporter import generate_pdf
+    from services.downloader import get_metadata
+
+    with open(index_path) as f:
+        frame_index = json.load(f)
+
+    formations = []
+    for entry in frame_index:
+        frame_id = entry["frame_id"]
+        dancer_path = session_dir / "formations" / f"{frame_id}_dancers.json"
+
+        dancers = []
+        if dancer_path.exists():
+            with open(dancer_path) as f:
+                raw = json.load(f)
+                # only include dancers that have valid x_top/y_top from current run
+                dancers = [d for d in raw if d.get("x_top") is not None]
+
+        formations.append({
+            "frame_id": frame_id,
+            "timestamp": entry.get("timestamp", 0),
+            "dancers": dancers,
+        })
+
+    metadata = get_metadata(req.session_id)
+    pdf_path = generate_pdf(req.session_id, formations, metadata)
+
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=f"formations_{req.session_id}.pdf"
+    )

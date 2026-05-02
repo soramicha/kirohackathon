@@ -17,7 +17,7 @@ def _get_model():
     return _model
 
 
-def detect_dancers(session_id: str, frame_id: str) -> list[dict]:
+def detect_dancers(session_id: str, frame_id: str, expected_count: int = None) -> list[dict]:
     """
     Run YOLOv11 pose estimation on a single frame.
     Returns dancers with consistent IDs, positions, and keypoints.
@@ -43,7 +43,7 @@ def detect_dancers(session_id: str, frame_id: str) -> list[dict]:
         )):
             if int(cls) != 0:  # person class only
                 continue
-            if float(conf) < 0.4:
+            if float(conf) < 0.25:  # lowered from 0.4 — catches more dancers in darker/distant shots
                 continue
 
             x1, y1, x2, y2 = [float(v) for v in box]
@@ -75,6 +75,48 @@ def detect_dancers(session_id: str, frame_id: str) -> list[dict]:
         d["id"] = i + 1
         zone = d["label"].split("(")[-1].rstrip(")")
         d["label"] = f"Dancer {i + 1} ({zone})"
+
+    # If expected_count is specified and we have fewer dancers, add missing ones offstage
+    if expected_count and len(dancers) < expected_count:
+        missing_count = expected_count - len(dancers)
+        
+        # Place missing dancers in the right offstage area (x > 1.0)
+        for i in range(missing_count):
+            dancer_id = len(dancers) + i + 1
+            # Simple vertical spacing with good padding
+            offstage_x = 1.2 + (i % 2) * 0.15  # 2 columns with good spacing
+            offstage_y = 0.1 + (i * 0.12)      # vertical spacing with padding
+            
+            dancers.append({
+                "id": dancer_id,
+                "label": f"Dancer {dancer_id} (offstage)",
+                "x": offstage_x,
+                "y": offstage_y,
+                "bbox": [0, 0, 0, 0],  # no actual detection
+                "keypoints": [],
+                "confidence": 0.0,
+                "manual": True,  # flag to indicate this was manually added
+                "offstage": True  # flag to indicate this is offstage
+            })
+
+    # Final safety check: if we still have no dancers and expected_count is specified, add them all offstage
+    if expected_count and len(dancers) == 0:
+        for i in range(expected_count):
+            # Simple vertical spacing with good padding
+            offstage_x = 1.2 + (i % 2) * 0.15  # 2 columns with good spacing
+            offstage_y = 0.1 + (i * 0.12)      # vertical spacing with padding
+            
+            dancers.append({
+                "id": i + 1,
+                "label": f"Dancer {i + 1} (offstage)",
+                "x": offstage_x,
+                "y": offstage_y,
+                "bbox": [0, 0, 0, 0],  # no actual detection
+                "keypoints": [],
+                "confidence": 0.0,
+                "manual": True,  # flag to indicate this was manually added
+                "offstage": True  # flag to indicate this is offstage
+            })
 
     # persist
     out_path = session_dir / "formations" / f"{frame_id}_dancers.json"

@@ -33,7 +33,7 @@ from pydantic import BaseModel
 from pathlib import Path
 import uvicorn
 
-from routers import video, formations
+from routers import video, formations, tracking
 
 app = FastAPI(title="FormationAI API")
 
@@ -47,6 +47,7 @@ app.add_middleware(
 
 app.include_router(video.router, prefix="/video", tags=["video"])
 app.include_router(formations.router, prefix="/formations", tags=["formations"])
+app.include_router(tracking.router, prefix="/tracking", tags=["tracking"])
 
 
 @app.on_event("startup")
