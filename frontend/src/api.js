@@ -16,8 +16,8 @@ export const extractFrames = (session_id, timestamps) =>
 export const analyzeFormation = (session_id, frame_id) =>
   api.post("/formations/analyze", { session_id, frame_id }).then((r) => r.data);
 
-export const analyzeAll = (session_id) =>
-  api.post("/formations/analyze-all", { session_id }).then((r) => r.data);
+export const analyzeAll = (session_id, dancer_count) =>
+  api.post("/formations/analyze-all", { session_id, dancer_count }).then((r) => r.data);
 
 export const exportSession = (session_id) =>
   api.post("/formations/export", { session_id }, { responseType: "blob" }).then((r) => r.data);
