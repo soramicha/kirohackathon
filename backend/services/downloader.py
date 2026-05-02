@@ -1,6 +1,11 @@
 import yt_dlp
 import json
+import os
 from pathlib import Path
+
+# Path to a Netscape-format cookies.txt file for YouTube authentication.
+# Set via YOUTUBE_COOKIES_FILE env var, or place a cookies.txt in the backend dir.
+COOKIES_FILE = os.environ.get("YOUTUBE_COOKIES_FILE", "cookies.txt")
 
 
 def download_video(url: str, session_id: str) -> dict:
@@ -18,6 +23,11 @@ def download_video(url: str, session_id: str) -> dict:
         "quiet": True,
         "no_warnings": True,
     }
+
+    # Use cookies file if available to avoid YouTube bot detection
+    cookies_path = Path(COOKIES_FILE)
+    if cookies_path.exists():
+        ydl_opts["cookiefile"] = str(cookies_path)
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
