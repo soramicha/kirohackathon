@@ -1,7 +1,6 @@
 import yt_dlp
 import json
 import os
-import base64
 from pathlib import Path
 
 
@@ -9,27 +8,21 @@ def get_cookie_options():
     """
     Get cookie configuration for yt-dlp to avoid bot detection.
     Priority:
-    1. Environment variable (YOUTUBE_COOKIES_BASE64) - for production
+    1. Render Secret File (/etc/secrets/cookies.txt) - for production
     2. Manual cookie file (cookies.txt) - for local with manual export
     3. Browser cookies (Chrome) - for local development only
     4. No cookies (fallback)
     """
     cookie_opts = {}
     
-    # Method 1: Environment variable (PRODUCTION)
-    cookies_b64 = os.getenv("YOUTUBE_COOKIES_BASE64")
-    if cookies_b64:
-        try:
-            cookie_file = Path("cookies.txt")
-            cookies_content = base64.b64decode(cookies_b64)
-            cookie_file.write_bytes(cookies_content)
-            print(f"[downloader] ✅ Using cookies from environment variable")
-            cookie_opts["cookiefile"] = str(cookie_file)
-            return cookie_opts
-        except Exception as e:
-            print(f"[downloader] ❌ Failed to decode cookies from env: {e}")
+    # Method 1: Render Secret File (PRODUCTION)
+    secret_cookie = Path("/etc/secrets/cookies.txt")
+    if secret_cookie.exists():
+        print(f"[downloader] ✅ Using Render secret file: {secret_cookie}")
+        cookie_opts["cookiefile"] = str(secret_cookie)
+        return cookie_opts
     
-    # Method 2: Manual cookie file
+    # Method 2: Manual cookie file (LOCAL or PRODUCTION)
     cookie_file = Path("cookies.txt")
     if cookie_file.exists():
         print(f"[downloader] ✅ Using cookie file: {cookie_file}")
@@ -67,8 +60,8 @@ def get_cookie_options():
     
     # Method 4: No cookies (fallback)
     print("[downloader] ⚠️  WARNING: No cookies available - downloads may trigger bot detection")
-    print("[downloader] 📝 For production, set YOUTUBE_COOKIES_BASE64 environment variable")
-    print("[downloader] 📖 See RENDER-DEPLOYMENT.md for instructions")
+    print("[downloader] 📝 For Render: Add cookies.txt as a Secret File")
+    print("[downloader] 📖 See RENDER-SECRET-FILES.md for instructions")
     return {}
 
 
