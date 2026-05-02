@@ -125,7 +125,7 @@ function drawCanvas(canvas, dancers, registry, draggingId) {
 function toCanvas(nx, ny, W, H) {
   return {
     cx: PAD + nx * (W - PAD * 2),
-    cy: PAD + ny * (H - PAD * 2) * 0.75 + (H - PAD * 2) * 0.05,
+    cy: PAD + (1 - ny) * (H - PAD * 2),
   };
 }
 
@@ -133,7 +133,7 @@ function toCanvas(nx, ny, W, H) {
 function fromCanvas(cx, cy, W, H) {
   return {
     nx: (cx - PAD) / (W - PAD * 2),
-    ny: ((cy - PAD - (H - PAD * 2) * 0.05) / ((H - PAD * 2) * 0.75)),
+    ny: 1 - (cy - PAD) / (H - PAD * 2),
   };
 }
 
@@ -240,7 +240,7 @@ export default function FormationViewer({ session, formations: initialFormations
       dancers: (f.dancers || []).map((d) => ({
         ...d,
         cx: PAD + (d.x_top ?? d.x) * (600 - PAD * 2),
-        cy: PAD + (d.y_top ?? d.y) * (480 - PAD * 2) * 0.75 + (480 - PAD * 2) * 0.05,
+        cy: PAD + (1 - (d.y_top ?? d.y)) * (480 - PAD * 2),
       })),
     }));
   });
