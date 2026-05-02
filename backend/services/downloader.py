@@ -15,12 +15,15 @@ def get_cookie_options():
     """
     cookie_opts = {}
     
-    # Method 1: Render Secret File (PRODUCTION)
+    # Method 1: Render Secret File (PRODUCTION) - READ ONLY
     secret_cookie = Path("/etc/secrets/cookies.txt")
-    if secret_cookie.exists():
-        print(f"[downloader] ✅ Using Render secret file: {secret_cookie}")
-        cookie_opts["cookiefile"] = str(secret_cookie)
-        return cookie_opts
+    try:
+        if secret_cookie.exists() and secret_cookie.is_file():
+            print(f"[downloader] ✅ Using Render secret file: {secret_cookie}")
+            cookie_opts["cookiefile"] = str(secret_cookie)
+            return cookie_opts
+    except (OSError, PermissionError) as e:
+        print(f"[downloader] ⚠️  Could not access secret file: {e}")
     
     # Method 2: Manual cookie file (LOCAL or PRODUCTION)
     cookie_file = Path("cookies.txt")
