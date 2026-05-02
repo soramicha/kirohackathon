@@ -43,7 +43,7 @@ def detect_dancers(session_id: str, frame_id: str) -> list[dict]:
         )):
             if int(cls) != 0:  # person class only
                 continue
-            if float(conf) < 0.4:
+            if float(conf) < 0.25:  # lowered from 0.4 — catches more dancers in darker/distant shots
                 continue
 
             x1, y1, x2, y2 = [float(v) for v in box]

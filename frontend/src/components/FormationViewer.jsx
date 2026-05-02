@@ -145,7 +145,19 @@ function StageCanvas({ dancers, registry, onDancersChange, addMode }) {
   useEffect(() => { dancersRef.current = dancers; }, [dancers]);
 
   useEffect(() => {
-    drawCanvas(canvasRef.current, dancers, registry, draggingRef.current?.id);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    drawCanvas(canvas, dancers, registry, draggingRef.current?.id);
+
+    // show hint if empty
+    if (!dancers?.length) {
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#4b5563";
+      ctx.font = "13px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("No dancers detected — use + Add Dancer to place manually", canvas.width / 2, canvas.height / 2);
+    }
   }, [dancers, registry]);
 
   function getPos(e) {
