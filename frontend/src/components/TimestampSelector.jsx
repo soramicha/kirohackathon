@@ -14,7 +14,6 @@ export default function TimestampSelector({ session, onFormationsReady }) {
   const [scanning, setScanning] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState(null);
-  const [preset, setPreset] = useState("balanced");
 
   function parseInput(val) {
     const parts = val.trim().split(":");
@@ -38,7 +37,7 @@ export default function TimestampSelector({ session, onFormationsReady }) {
     setScanning(true);
     setError(null);
     try {
-      const result = await scanFormations(session_id, preset);
+      const result = await scanFormations(session_id);
       const scanned = result.auto_timestamps.map((t) => t.timestamp);
       setTimestamps((prev) => {
         const merged = [...new Set([...prev, ...scanned])].sort((a, b) => a - b);
@@ -149,29 +148,6 @@ export default function TimestampSelector({ session, onFormationsReady }) {
             ) : "Auto-scan"}
           </button>
         </div>
-        
-        {/* Detection preset selector */}
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-gray-500">Detection mode:</span>
-          {["strict", "balanced", "loose"].map((p) => (
-            <button
-              key={p}
-              onClick={() => setPreset(p)}
-              className={`px-2.5 py-1 rounded transition ${
-                preset === p
-                  ? "bg-violet-600 text-white"
-                  : "bg-gray-800 text-gray-400 hover:bg-gray-700"
-              }`}
-            >
-              {p.charAt(0).toUpperCase() + p.slice(1)}
-            </button>
-          ))}
-        </div>
-        <p className="text-xs text-gray-600 mt-2">
-          {preset === "strict" && "Fewer false positives, might miss quick formations"}
-          {preset === "balanced" && "Good default for most practice videos"}
-          {preset === "loose" && "Catches more formations, may include transitions"}
-        </p>
       </div>
 
       {error && (

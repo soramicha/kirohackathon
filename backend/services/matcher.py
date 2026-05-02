@@ -51,7 +51,7 @@ def match_dancers(
 ) -> list[dict]:
     """
     Match curr_dancers to prev_dancers using appearance + proximity.
-    Returns curr_dancers with IDs reassigned to match prev_dancers.
+    Returns curr_dancers with IDs reassigned to match prev_dancers
 
     - appearance_weight: how much outfit color similarity matters
     - proximity_weight: how much position similarity matters

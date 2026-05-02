@@ -45,9 +45,37 @@ class FormationDetectionConfig:
     # Prevents detecting multiple timestamps in the same formation
     MIN_SPACING_BETWEEN = 5.0
     
-    # YOLO confidence threshold for people detection
-    # Higher = only detect very confident detections
-    YOLO_CONFIDENCE = 0.4
+    # YOLO confidence threshold for people detection during scanning
+    # Lower = catches more people but more false positives
+    # The per-frame detector uses its own multi-pass thresholds (0.25 / 0.15)
+    YOLO_CONFIDENCE = 0.25
+
+    # ---- Enhanced detection parameters (audio + velocity + hull) ----
+
+    # Phrase length in beats (8-count is standard in most choreography)
+    PHRASE_LENGTH = 8
+
+    # Number of frames to search around each phrase boundary for velocity minimum
+    VELOCITY_SEARCH_WINDOW = 10
+
+    # Minimum hull stability score to confirm a formation (0-1, higher = stricter)
+    HULL_STABILITY_THRESHOLD = 0.7
+
+    # Normalized background motion threshold for camera motion compensation
+    # If median dancer displacement exceeds this, treat as camera motion
+    CAMERA_MOTION_THRESHOLD = 0.02
+
+    # Audio sample rate for librosa analysis
+    AUDIO_SAMPLE_RATE = 22050
+
+    # Histogram correlation threshold for scene cut detection
+    # Lower = more sensitive to cuts (0.0 to 1.0)
+    SCENE_CUT_THRESHOLD = 0.5
+
+    # Minimum fraction of dancers that must have swapped positions to detect
+    # a formation change (0.0 to 1.0). E.g., 0.2 = at least 20% of dancers
+    # moved to a different dancer's previous position.
+    SWAP_DETECTION_THRESHOLD = 0.15
 
 
 # ============================================================================
@@ -82,63 +110,3 @@ class AppearanceMatchingConfig:
     MAX_MATCH_DISTANCE = 0.5
 
 
-# ============================================================================
-# PRESETS
-# ============================================================================
-
-class DetectionPresets:
-    """
-    Pre-configured parameter sets for different use cases.
-    """
-    
-    @staticmethod
-    def strict():
-        """
-        Strict detection - fewer false positives, might miss some formations.
-        Best for: Clean practice videos with clear formations.
-        """
-        FormationDetectionConfig.MIN_FORMATION_DURATION = 4.0
-        FormationDetectionConfig.MOTION_THRESHOLD = 6.0
-        FormationDetectionConfig.MIN_PEOPLE_COUNT = 3
-        FormationDetectionConfig.MIN_SPACING_BETWEEN = 8.0
-        FormationDetectionConfig.EDGE_CHANGE_THRESHOLD = 0.12
-    
-    @staticmethod
-    def balanced():
-        """
-        Balanced detection - good default for most videos.
-        Best for: Standard practice videos and performances.
-        """
-        FormationDetectionConfig.MIN_FORMATION_DURATION = 3.0
-        FormationDetectionConfig.MOTION_THRESHOLD = 8.0
-        FormationDetectionConfig.MIN_PEOPLE_COUNT = 2
-        FormationDetectionConfig.MIN_SPACING_BETWEEN = 5.0
-        FormationDetectionConfig.EDGE_CHANGE_THRESHOLD = 0.15
-    
-    @staticmethod
-    def loose():
-        """
-        Loose detection - catches more formations, more false positives.
-        Best for: Fast-paced choreography with quick transitions.
-        """
-        FormationDetectionConfig.MIN_FORMATION_DURATION = 2.0
-        FormationDetectionConfig.MOTION_THRESHOLD = 10.0
-        FormationDetectionConfig.MIN_PEOPLE_COUNT = 2
-        FormationDetectionConfig.MIN_SPACING_BETWEEN = 3.0
-        FormationDetectionConfig.EDGE_CHANGE_THRESHOLD = 0.20
-    
-    @staticmethod
-    def solo():
-        """
-        Solo performance detection.
-        Best for: Single dancer videos.
-        """
-        FormationDetectionConfig.MIN_FORMATION_DURATION = 3.0
-        FormationDetectionConfig.MOTION_THRESHOLD = 7.0
-        FormationDetectionConfig.MIN_PEOPLE_COUNT = 1
-        FormationDetectionConfig.MIN_SPACING_BETWEEN = 5.0
-        FormationDetectionConfig.EDGE_CHANGE_THRESHOLD = 0.15
-
-
-# Initialize with balanced preset
-DetectionPresets.balanced()

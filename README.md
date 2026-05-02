@@ -81,16 +81,9 @@ The app includes **auto-detection** of stable formations using multi-signal anal
 - Scene cut detection (edge analysis)
 - Temporal stability requirements
 
-### Detection Presets
-
-Choose from three presets in the UI:
-- **Strict** - Fewer false positives, best for clean practice videos
-- **Balanced** - Good default for most videos (recommended)
-- **Loose** - Catches more formations, best for fast choreography
-
 ### Fine-Tuning Detection
 
-Getting too many false positives? See [DETECTION_TUNING.md](backend/DETECTION_TUNING.md) for:
+See [DETECTION_TUNING.md](backend/DETECTION_TUNING.md) for:
 - Parameter explanations
 - Troubleshooting guide
 - Example configurations for different video types

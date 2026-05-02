@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from services.downloader import download_video, get_metadata
 from services.extractor import extract_frames, detect_formation_timestamps
 from services.session import create_session, get_session, update_session
-from config import DetectionPresets, FormationDetectionConfig
+from config import FormationDetectionConfig
 from pathlib import Path
 import os
 
@@ -18,10 +18,6 @@ class VideoRequest(BaseModel):
 class TimestampRequest(BaseModel):
     session_id: str
     timestamps: list[float]  # in seconds
-
-
-class ScanRequest(BaseModel):
-    preset: str | None = None  # "strict", "balanced", "loose", "solo"
 
 
 @router.post("/process")
@@ -43,35 +39,14 @@ def process_video(req: VideoRequest):
 
 
 @router.post("/scan/{session_id}")
-def scan_formations(session_id: str, req: ScanRequest | None = None):
+def scan_formations(session_id: str):
     """
     Step 2: Scan the downloaded video for stable formation timestamps.
     Run this after /process returns — takes 10-30s depending on video length.
-    
-    Optional preset parameter:
-    - "strict": Fewer false positives, might miss some formations
-    - "balanced": Good default (default if not specified)
-    - "loose": Catches more formations, more false positives
-    - "solo": For single dancer videos
     """
     session = get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
-    # Apply preset if specified
-    if req and req.preset:
-        preset_map = {
-            "strict": DetectionPresets.strict,
-            "balanced": DetectionPresets.balanced,
-            "loose": DetectionPresets.loose,
-            "solo": DetectionPresets.solo,
-        }
-        if req.preset not in preset_map:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Invalid preset. Choose from: {list(preset_map.keys())}"
-            )
-        preset_map[req.preset]()
     
     try:
         timestamps = detect_formation_timestamps(session_id)
@@ -79,7 +54,6 @@ def scan_formations(session_id: str, req: ScanRequest | None = None):
         return {
             "session_id": session_id, 
             "auto_timestamps": timestamps,
-            "preset_used": req.preset if req else "balanced",
             "config": {
                 "min_formation_duration": FormationDetectionConfig.MIN_FORMATION_DURATION,
                 "motion_threshold": FormationDetectionConfig.MOTION_THRESHOLD,

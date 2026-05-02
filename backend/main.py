@@ -24,14 +24,16 @@ app.include_router(tracking.router, prefix="/tracking", tags=["tracking"])
 
 @app.on_event("startup")
 async def warmup():
-    """Pre-load YOLOv11 model so the first formation request isn't slow."""
+    """Pre-load YOLO models so the first request isn't slow."""
     try:
-        from services.detector import _get_model
+        from services.detector import _get_model, _get_detect_model
         model = _get_model()
-        print(f"YOLOv11 ready — {model.model_name if hasattr(model, 'model_name') else 'loaded'}")
+        print(f"YOLOv11 pose model ready — {model.model_name if hasattr(model, 'model_name') else 'loaded'}")
+        detect_model = _get_detect_model()
+        print(f"YOLOv11 detect model ready — {detect_model.model_name if hasattr(detect_model, 'model_name') else 'loaded'}")
     except Exception as e:
         print(f"YOLO warmup failed (non-fatal): {e}")
-        print("Tip: run `pip install torch torchvision ultralytics>=8.4.0` to fix")
+        print("Tip: run `uv sync` to install dependencies")
 
 
 @app.get("/health")
