@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { exportSession, imageUrl } from "../api";
+import { exportSession, imageUrl, videoStreamUrl } from "../api";
+import VideoPlayer from "./VideoPlayer";
 
 function formatTime(seconds) {
   const m = Math.floor(seconds / 60);
@@ -249,6 +250,8 @@ export default function FormationViewer({ session, formations: initialFormations
   const [addMode, setAddMode] = useState(false);
   const [exporting, setExporting] = useState(false);
 
+  const videoPlayerRef = useRef(null);
+
   // Global dancer registry — persists across formations
   const registry = buildRegistry(formations);
 
@@ -263,6 +266,22 @@ export default function FormationViewer({ session, formations: initialFormations
   function removeLastDancer() {
     if (!active?.dancers?.length) return;
     handleDancersChange(active.dancers.slice(0, -1));
+  }
+
+  // Called by the sync engine inside VideoPlayer when playback crosses a formation timestamp
+  function handleFormationChange(idx) {
+    if (idx >= 0 && idx < formations.length && idx !== activeIdx) {
+      setActiveIdx(idx);
+      setAddMode(false);
+    }
+  }
+
+  // When user clicks a formation button, also seek the video
+  function handleFormationClick(idx) {
+    setActiveIdx(idx);
+    setAddMode(false);
+    const ts = formations[idx]?.timestamp ?? 0;
+    videoPlayerRef.current?.seekTo(ts);
   }
 
   async function handleExport() {
@@ -281,7 +300,7 @@ export default function FormationViewer({ session, formations: initialFormations
   }
 
   return (
-    <div className="flex flex-col gap-6 max-w-6xl mx-auto">
+    <div className="flex flex-col gap-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -305,7 +324,7 @@ export default function FormationViewer({ session, formations: initialFormations
         {formations.map((f, i) => (
           <button
             key={f.frame_id}
-            onClick={() => { setActiveIdx(i); setAddMode(false); }}
+            onClick={() => handleFormationClick(i)}
             className={`flex-shrink-0 flex flex-col items-center gap-1 px-3 py-2 rounded-xl border transition ${
               i === activeIdx
                 ? "border-violet-500 bg-violet-950 text-white"
@@ -319,29 +338,28 @@ export default function FormationViewer({ session, formations: initialFormations
         ))}
       </div>
 
-      {/* Main viewer */}
+      {/* Main viewer — side-by-side on desktop, stacked on mobile */}
       {active && (
-        <div className="grid grid-cols-2 gap-4">
-          {/* Left: original screenshot */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Left: Video Player */}
           <div className="flex flex-col gap-2">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              Video Frame · {formatTime(active.timestamp ?? 0)}
+              Video Playback
             </p>
-            <div className="rounded-xl overflow-hidden bg-gray-900 border border-gray-800">
-              <img
-                src={imageUrl(session.session_id, `frames/${active.frame_id}.jpg`)}
-                alt="Dance frame"
-                className="w-full object-cover"
-                onError={(e) => { e.target.style.display = "none"; }}
-              />
-            </div>
+            <VideoPlayer
+              ref={videoPlayerRef}
+              src={videoStreamUrl(session.session_id)}
+              formations={formations}
+              onFormationChange={handleFormationChange}
+              sessionId={session.session_id}
+            />
           </div>
 
           {/* Right: interactive stage canvas */}
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                Formation Map · Top-Down View
+                Formation Map · Top-Down View · {formatTime(active.timestamp ?? 0)}
               </p>
               <div className="flex gap-2">
                 <button
