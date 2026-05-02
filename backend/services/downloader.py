@@ -12,13 +12,27 @@ def download_video(url: str, session_id: str) -> dict:
     session_dir.mkdir(parents=True, exist_ok=True)
     video_path = session_dir / "video.mp4"
 
-    ydl_opts = {
-        "format": "best[ext=mp4]/best",  # single file, no merging needed, no ffmpeg required
+    # Try to use browser cookies for restricted videos, fall back to no cookies
+    base_opts = {
+        "format": "best[ext=mp4]/best",
         "outtmpl": str(video_path),
         "quiet": True,
         "no_warnings": True,
-        "cookiesfrombrowser": ("chrome",),  # use your logged-in Chrome session
     }
+
+    # Try each browser in order — Chrome must be closed for cookie access
+    cookie_browsers = ["firefox", "edge", "chrome"]
+    ydl_opts = base_opts.copy()
+
+    for browser in cookie_browsers:
+        try:
+            test_opts = {**base_opts, "cookiesfrombrowser": (browser,)}
+            with yt_dlp.YoutubeDL({**test_opts, "skip_download": True}) as ydl:
+                ydl.extract_info(url, download=False)
+            ydl_opts = test_opts
+            break
+        except Exception:
+            continue
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
