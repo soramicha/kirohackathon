@@ -220,7 +220,7 @@ function StageCanvas({ dancers, registry, onDancersChange, addMode }) {
   return (
     <canvas
       ref={canvasRef}
-      width={600}
+      width={720}
       height={480}
       className={`w-full rounded-lg ${addMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
       style={{ background: "#111318" }}
@@ -239,7 +239,7 @@ export default function FormationViewer({ session, formations: initialFormations
       ...f,
       dancers: (f.dancers || []).map((d) => ({
         ...d,
-        cx: PAD + (d.x_top ?? d.x) * (600 - PAD * 2),
+        cx: PAD + (d.x_top ?? d.x) * (720 - PAD * 2),
         cy: PAD + (d.y_top ?? d.y) * (480 - PAD * 2),
       })),
     }));

@@ -92,6 +92,12 @@ def analyze_all_formations(req: ExportRequest):
 
             topdown_path = generate_topdown(req.session_id, frame_id, dancers)
 
+            # Save dancers AFTER topdown so x_top/y_top are persisted
+            out_path = Path(f"sessions/{req.session_id}/formations/{frame_id}_dancers.json")
+            with open(out_path, "w") as f:
+                import json as _json
+                _json.dump(dancers, f, indent=2)
+
             results.append({
                 "frame_id": frame_id,
                 "timestamp": ts,
