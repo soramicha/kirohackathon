@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: formationai-backend
+    runtime: python
+    buildCommand: "cd backend && pip install -r requirements.txt"
+    startCommand: "cd backend && python main.py"
+    plan: free
+    branch: deploy-test-angela
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: ALLOWED_ORIGINS
+        value: "*"
+    autoDeploy: false
