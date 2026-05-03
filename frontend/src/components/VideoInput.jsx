@@ -15,7 +15,6 @@ export default function VideoInput({ onProcessed }) {
     setError(null);
     try {
       const data = await processVideo(url.trim());
-      // go straight to timestamp selector — no scan needed
       onProcessed({ ...data, auto_timestamps: [] });
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to process video. Check the URL and try again.");
@@ -43,7 +42,6 @@ export default function VideoInput({ onProcessed }) {
   function handleFileSelect(e) {
     const file = e.target.files[0];
     if (file) {
-      // Validate file size (max 500MB)
       const maxSize = 500 * 1024 * 1024;
       if (file.size > maxSize) {
         setError("File too large. Maximum size is 500MB.");
@@ -61,15 +59,12 @@ export default function VideoInput({ onProcessed }) {
           Turn any dance video into a{" "}
           <span className="text-violet-400">formation map</span>
         </h1>
-        <p className="text-gray-400 text-lg max-w-xl">
+        <p className="text-gray-400 text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
           {uploadMode 
             ? "Upload a video file from your device to analyze formations."
             : "Paste a YouTube link from a practice video or showcase performance."
           }
           {" "}FormationAI will detect every dancer and generate a top-down view of
-        <p className="text-gray-400 text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
-          Paste a YouTube link from a practice video or showcase performance.
-          FormationAI will detect every dancer and generate a top-down view of
           each formation.
         </p>
       </div>
@@ -108,7 +103,7 @@ export default function VideoInput({ onProcessed }) {
 
       {/* URL Input Form */}
       {!uploadMode && (
-        <form onSubmit={handleSubmit} className="w-full max-w-xl flex flex-col gap-3">
+        <form onSubmit={handleSubmit} className="w-full max-w-2xl mx-auto flex flex-col gap-3">
           <div className="flex gap-2">
             <input
               type="url"
@@ -125,29 +120,6 @@ export default function VideoInput({ onProcessed }) {
             >
               {loading ? "Downloading…" : "Analyze"}
             </button>
-      <form onSubmit={handleSubmit} className="w-full max-w-2xl mx-auto flex flex-col gap-3">
-        <div className="flex gap-2">
-          <input
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://www.youtube.com/watch?v=..."
-            className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-violet-500 transition text-center md:text-left"
-            disabled={loading}
-          />
-          <button
-            type="submit"
-            disabled={loading || !url.trim()}
-            className="bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed px-6 py-3 rounded-lg font-medium transition"
-          >
-            {loading ? "Downloading…" : "Analyze"}
-          </button>
-        </div>
-
-        {loading && (
-          <div className="flex items-center justify-center gap-3 text-sm text-gray-400 bg-gray-900 rounded-lg px-4 py-3">
-            <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-            Downloading video… (~10-15s)
           </div>
 
           {loading && (
@@ -161,7 +133,7 @@ export default function VideoInput({ onProcessed }) {
 
       {/* File Upload Form */}
       {uploadMode && (
-        <form onSubmit={handleFileUpload} className="w-full max-w-xl flex flex-col gap-3">
+        <form onSubmit={handleFileUpload} className="w-full max-w-2xl mx-auto flex flex-col gap-3">
           <div className="flex flex-col gap-2">
             <label
               htmlFor="video-file"
@@ -217,13 +189,13 @@ export default function VideoInput({ onProcessed }) {
 
       {/* Error Message */}
       {error && (
-        <div className="w-full max-w-xl text-sm text-red-400 bg-red-950 border border-red-800 rounded-lg px-4 py-3">
+        <div className="w-full max-w-2xl mx-auto text-sm text-red-400 bg-red-950 border border-red-800 rounded-lg px-4 py-3">
           {error}
         </div>
       )}
 
       <div className="text-center">
-        <p className="text-xs text-gray-600 mb-2">
+        <p className="text-xs text-gray-600">
           Works best with practice room videos — fixed camera, clear floor, good lighting.
         </p>
       </div>

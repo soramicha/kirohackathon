@@ -797,10 +797,10 @@ export default function FormationViewer({ session, formations: initialFormations
       setFormations((prev) => {
         const updated = prev.filter((f) => f.frame_id !== active.frame_id);
         
-        // Adjust active index
+        // Adjust active index - use safeActiveIdx to avoid errors
         if (updated.length === 0) {
           setActiveIdx(0);
-        } else if (activeIdx >= updated.length) {
+        } else if (safeActiveIdx >= updated.length) {
           setActiveIdx(updated.length - 1);
         }
         

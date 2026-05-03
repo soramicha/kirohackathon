@@ -86,7 +86,7 @@ def resize_video_if_needed(video_path: Path, max_height: int = 480) -> Path:
 def download_video(url: str, session_id: str) -> dict:
     """
     Download a YouTube video using yt-dlp and save to the session directory.
-    Resizes to max height of 500px to save space.
+    Resizes to max height of 480px to save space.
     Returns metadata dict.
     """
     session_dir = Path(f"sessions/{session_id}")
@@ -149,18 +149,19 @@ def download_video(url: str, session_id: str) -> dict:
             # Add cookies if available
             if temp_cookie_path and temp_cookie_path.exists():
                 ydl_opts["cookiefile"] = str(temp_cookie_path)
-
-        # Resize video if needed
-        actual_path = resize_video_if_needed(actual_path, max_height=480)
-
-        metadata = {
-            "title": info.get("title"),
-            "duration": info.get("duration"),  # seconds
-            "thumbnail": info.get("thumbnail"),
-            "uploader": info.get("uploader"),
-            "url": url,
-            "video_path": str(actual_path),
-        }
+            
+            # Download video
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                
+                # yt-dlp may append extension — find the actual file
+                actual_path = video_path
+                if not actual_path.exists():
+                    candidates = list(session_dir.glob("video.*"))
+                    actual_path = candidates[0] if candidates else video_path
+                
+                # Resize video if needed
+                actual_path = resize_video_if_needed(actual_path, max_height=480)
 
                 metadata = {
                     "title": info.get("title"),
