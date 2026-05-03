@@ -141,33 +141,15 @@ async def upload_video(file: UploadFile = File(...)):
 @router.post("/scan/{session_id}")
 def scan_formations(session_id: str, req: ScanRequest | None = None):
     """
-    Step 2: Scan the downloaded video for stable formation timestamps.
-    Run this after /process returns — takes 10-30s depending on video length.
-    
-    Optional preset parameter:
-    - "strict": Fewer false positives, might miss some formations
-    - "balanced": Good default (default if not specified)
-    - "loose": Catches more formations, more false positives
-    - "solo": For single dancer videos
+    Scan the downloaded video for formation timestamps.
+    Always uses loose detection to catch the most formations.
     """
     session = get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    # Apply preset if specified
-    if req and req.preset:
-        preset_map = {
-            "strict": DetectionPresets.strict,
-            "balanced": DetectionPresets.balanced,
-            "loose": DetectionPresets.loose,
-            "solo": DetectionPresets.solo,
-        }
-        if req.preset not in preset_map:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Invalid preset. Choose from: {list(preset_map.keys())}"
-            )
-        preset_map[req.preset]()
+    # Always use loose preset for best coverage
+    DetectionPresets.loose()
     
     try:
         timestamps = detect_formation_timestamps(session_id)
@@ -175,13 +157,6 @@ def scan_formations(session_id: str, req: ScanRequest | None = None):
         return {
             "session_id": session_id, 
             "auto_timestamps": timestamps,
-            "preset_used": req.preset if req else "balanced",
-            "config": {
-                "min_formation_duration": FormationDetectionConfig.MIN_FORMATION_DURATION,
-                "motion_threshold": FormationDetectionConfig.MOTION_THRESHOLD,
-                "min_people_count": FormationDetectionConfig.MIN_PEOPLE_COUNT,
-                "min_spacing_between": FormationDetectionConfig.MIN_SPACING_BETWEEN,
-            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

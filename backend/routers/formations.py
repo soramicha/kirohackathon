@@ -101,8 +101,9 @@ class ExportRequest(BaseModel):
 @router.post("/analyze-all")
 def analyze_all_formations(req: AnalyzeAllRequest):
     """
-    Run YOLOv11 per-frame detection with appearance-based ID matching
-    across formations. Fast and consistent dancer IDs.
+    Per-frame detection + Hungarian algorithm matching.
+    First formation establishes IDs. Subsequent formations match to it.
+    No new IDs are ever created — dancer count is fixed.
     """
     session = get_session(req.session_id)
     if not session:
@@ -120,13 +121,13 @@ def analyze_all_formations(req: AnalyzeAllRequest):
     if not frame_index:
         raise HTTPException(status_code=400, detail="No frames found. Extract frames first.")
 
-    from services.matcher import match_dancers
+    from services.matcher import match_formations
     import cv2
 
     results = []
-    prev_dancers = None
-    prev_img = None
-    is_first_frame = True
+    anchor_dancers = None  # first formation becomes the anchor
+    anchor_img = None
+    num_dancers = req.dancer_count or 4
 
     for entry in frame_index:
         frame_id = entry["frame_id"]
@@ -135,51 +136,57 @@ def analyze_all_formations(req: AnalyzeAllRequest):
 
         try:
             curr_img = cv2.imread(str(frame_path))
-            # Only add offstage dancers to the first frame
-            expected_count = req.dancer_count if is_first_frame else None
-            dancers = detect_dancers(req.session_id, frame_id, expected_count)
+            dancers = detect_dancers(req.session_id, frame_id)
 
-            # Match IDs to previous formation using appearance + proximity
-            if prev_dancers is not None and prev_img is not None:
-                dancers = match_dancers(prev_dancers, dancers, prev_img, curr_img, req.dancer_count)
-            elif req.dancer_count and len(dancers) < req.dancer_count:
-                # First formation or no previous dancers - ensure we have expected count
-                missing_count = req.dancer_count - len(dancers)
-                used_ids = {d["id"] for d in dancers} if dancers else set()
-                next_new_id = max(used_ids, default=0) + 1
-                
-                # Find the next available ID that's not already used
-                while next_new_id in used_ids:
-                    next_new_id += 1
-                
-                # Add missing dancers to offstage area
-                for i in range(missing_count):
-                    # Simple vertical spacing with good padding
-                    offstage_x = 1.2 + (i % 2) * 0.15  # 2 columns with good spacing
-                    offstage_y = 0.1 + (i * 0.12)      # vertical spacing with padding
-                    
-                    dancers.append({
-                        "id": next_new_id,
-                        "label": f"Dancer {next_new_id} (offstage)",
-                        "x": offstage_x,
-                        "y": offstage_y,
-                        "bbox": [0, 0, 0, 0],  # no actual detection
-                        "keypoints": [],
-                        "confidence": 0.0,
-                        "manual": True,  # flag to indicate this was manually added
-                        "offstage": True  # flag to indicate this is offstage
-                    })
-                    next_new_id += 1
+            if anchor_dancers is None:
+                # First formation — establish IDs 1 through N
+                # Take top N by confidence if we detected more
+                dancers.sort(key=lambda d: d["confidence"], reverse=True)
+                dancers = dancers[:num_dancers]
+                dancers.sort(key=lambda d: d["x"])  # re-sort left to right
+                for i, d in enumerate(dancers):
+                    d["id"] = i + 1
+                    d["label"] = f"Dancer {i + 1}"
+                anchor_dancers = dancers
+                anchor_img = curr_img
+            else:
+                # Take top detections by confidence, cap to expected count
+                dancers.sort(key=lambda d: d["confidence"], reverse=True)
+                dancers = dancers[:num_dancers]
+                dancers.sort(key=lambda d: d["x"])
+                # Match to anchor using Hungarian algorithm
+                dancers = match_formations(
+                    anchor_dancers, anchor_img,
+                    dancers, curr_img,
+                    num_dancers,
+                )
+
+            # Add offstage placeholders for missing dancers
+            detected_ids = {d["id"] for d in dancers}
+            all_ids = set(range(1, num_dancers + 1))
+            missing = all_ids - detected_ids
+            for mid in sorted(missing):
+                idx = len(dancers)
+                dancers.append({
+                    "id": mid,
+                    "label": f"Dancer {mid} (offstage)",
+                    "x": 1.2 + (idx % 2) * 0.15,
+                    "y": 0.1 + idx * 0.12,
+                    "bbox": [0, 0, 0, 0],
+                    "keypoints": [],
+                    "confidence": 0.0,
+                    "offstage": True,
+                })
 
             topdown_path = generate_topdown(req.session_id, frame_id, dancers)
 
-            # Save dancers AFTER topdown so x_top/y_top are persisted
+            # Save dancers with x_top/y_top
             out_path = Path(f"sessions/{req.session_id}/formations/{frame_id}_dancers.json")
+            out_path.parent.mkdir(exist_ok=True)
             with open(out_path, "w") as f:
                 import json as _json
                 _json.dump(dancers, f, indent=2)
 
-            # Spread overlapping dancers so they're always visible
             dancers = _spread_overlapping(dancers)
 
             results.append({
@@ -190,40 +197,14 @@ def analyze_all_formations(req: AnalyzeAllRequest):
                 "topdown_image": topdown_path,
             })
 
-            prev_dancers = dancers
-            prev_img = curr_img
-            is_first_frame = False
-
         except Exception as e:
-            # Even when there's an error, ensure we have the expected number of dancers
-            error_dancers = []
-            if req.dancer_count:
-                for i in range(req.dancer_count):
-                    # Simple vertical spacing with good padding
-                    offstage_x = 1.2 + (i % 2) * 0.15  # 2 columns with good spacing
-                    offstage_y = 0.1 + (i * 0.12)      # vertical spacing with padding
-                    
-                    error_dancers.append({
-                        "id": i + 1,
-                        "label": f"Dancer {i + 1} (offstage)",
-                        "x": offstage_x,
-                        "y": offstage_y,
-                        "bbox": [0, 0, 0, 0],  # no actual detection
-                        "keypoints": [],
-                        "confidence": 0.0,
-                        "manual": True,  # flag to indicate this was manually added
-                        "offstage": True,  # flag to indicate this is offstage
-                        "error_generated": True  # flag to indicate this was created due to error
-                    })
-            
             results.append({
                 "frame_id": frame_id,
                 "timestamp": ts,
-                "dancer_count": len(error_dancers),
-                "dancers": error_dancers,
+                "dancer_count": 0,
+                "dancers": [],
                 "error": str(e),
             })
-            is_first_frame = False
 
     return {"session_id": req.session_id, "formations": results}
 
@@ -280,6 +261,7 @@ def get_image(session_id: str, filepath: str):
 def add_formation_at_timestamp(req: AddFormationRequest):
     """
     Generate a new formation at a specific timestamp.
+    If a formation already exists at this timestamp, it will be DELETED and replaced.
     Extracts the frame, detects dancers, and generates top-down view.
     """
     session = get_session(req.session_id)
@@ -293,6 +275,62 @@ def add_formation_at_timestamp(req: AddFormationRequest):
         session_dir = Path(f"sessions/{req.session_id}")
         frames_dir = session_dir / "frames"
         frames_dir.mkdir(exist_ok=True)
+        formations_dir = session_dir / "formations"
+        formations_dir.mkdir(exist_ok=True)
+        
+        # Load existing frames index
+        index_path = session_dir / "frames_index.json"
+        if index_path.exists():
+            with open(index_path) as f:
+                frame_index = json.load(f)
+        else:
+            frame_index = []
+        
+        # CRITICAL: Check if ANY formation exists at this EXACT timestamp (within 0.01s tolerance for floating point precision)
+        # If yes, DELETE it completely before creating the new one
+        TIMESTAMP_TOLERANCE = 0.01  # Very small tolerance for exact match
+        existing_formations = []
+        for entry in frame_index:
+            if abs(entry.get("timestamp", 0) - req.timestamp) <= TIMESTAMP_TOLERANCE:
+                existing_formations.append(entry)
+        
+        if existing_formations:
+            print(f"⚠️  Found {len(existing_formations)} existing formation(s) near {req.timestamp}s")
+            print(f"🗑️  Deleting old formation files...")
+            
+            for existing_formation in existing_formations:
+                old_frame_id = existing_formation["frame_id"]
+                print(f"   Deleting formation: {old_frame_id} at {existing_formation['timestamp']}s")
+                
+                # Delete ALL old formation files
+                old_frame_path = frames_dir / f"{old_frame_id}.jpg"
+                old_topdown_path = formations_dir / f"{old_frame_id}_topdown.jpg"
+                old_dancers_path = formations_dir / f"{old_frame_id}_dancers.json"
+                
+                if old_frame_path.exists():
+                    old_frame_path.unlink()
+                    print(f"      ✓ Deleted {old_frame_path.name}")
+                else:
+                    print(f"      ⚠ Frame not found: {old_frame_path.name}")
+                    
+                if old_topdown_path.exists():
+                    old_topdown_path.unlink()
+                    print(f"      ✓ Deleted {old_topdown_path.name}")
+                else:
+                    print(f"      ⚠ Topdown not found: {old_topdown_path.name}")
+                    
+                if old_dancers_path.exists():
+                    old_dancers_path.unlink()
+                    print(f"      ✓ Deleted {old_dancers_path.name}")
+                else:
+                    print(f"      ⚠ Dancers JSON not found: {old_dancers_path.name}")
+            
+            # Remove ALL matching entries from index
+            old_frame_ids = {f["frame_id"] for f in existing_formations}
+            frame_index = [e for e in frame_index if e["frame_id"] not in old_frame_ids]
+            print(f"   ✓ Removed {len(existing_formations)} formation(s) from index")
+        else:
+            print(f"ℹ️  No existing formation found near {req.timestamp}s")
         
         # Get video path
         meta_path = session_dir / "metadata.json"
@@ -307,9 +345,11 @@ def add_formation_at_timestamp(req: AddFormationRequest):
         if not video_path.exists():
             raise HTTPException(status_code=404, detail="Video file not found")
         
-        # Generate frame_id from timestamp
+        # Generate NEW frame_id from timestamp
         frame_id = f"frame_{int(req.timestamp * 1000):08d}"
         frame_path = frames_dir / f"{frame_id}.jpg"
+        
+        print(f"📸 Creating new formation at {req.timestamp}s (frame_id: {frame_id})")
         
         # Extract frame at timestamp
         cap = cv2.VideoCapture(str(video_path))
@@ -322,38 +362,31 @@ def add_formation_at_timestamp(req: AddFormationRequest):
         
         # Save frame
         cv2.imwrite(str(frame_path), frame)
+        print(f"   ✓ Extracted frame")
         
         # Detect dancers
         dancers = detect_dancers(req.session_id, frame_id)
+        print(f"   ✓ Detected {len(dancers)} dancers")
         
         # Generate top-down view
         topdown_path = generate_topdown(req.session_id, frame_id, dancers)
+        print(f"   ✓ Generated top-down view")
         
-        # Update frames_index.json
-        index_path = session_dir / "frames_index.json"
-        if index_path.exists():
-            with open(index_path) as f:
-                frame_index = json.load(f)
-        else:
-            frame_index = []
-        
-        # Add new frame to index (sorted by timestamp)
+        # Add new entry to index (sorted by timestamp)
         new_entry = {
             "frame_id": frame_id,
             "timestamp": req.timestamp,
             "path": f"frames/{frame_id}.jpg",
         }
+        frame_index.append(new_entry)
+        frame_index.sort(key=lambda x: x["timestamp"])
         
-        # Check if frame already exists
-        existing_idx = next((i for i, e in enumerate(frame_index) if e["frame_id"] == frame_id), None)
-        if existing_idx is not None:
-            frame_index[existing_idx] = new_entry
-        else:
-            frame_index.append(new_entry)
-            frame_index.sort(key=lambda x: x["timestamp"])
-        
+        # Save updated index
         with open(index_path, "w") as f:
             json.dump(frame_index, f, indent=2)
+        
+        message = f"Formation updated (replaced {len(existing_formations)} existing)" if existing_formations else "Formation added successfully"
+        print(f"✅ {message}")
         
         return {
             "session_id": req.session_id,
@@ -362,7 +395,10 @@ def add_formation_at_timestamp(req: AddFormationRequest):
             "dancer_count": len(dancers),
             "dancers": dancers,
             "topdown_image": topdown_path,
-            "message": "Formation added successfully",
+            "message": message,
+            "updated": len(existing_formations) > 0,
+            "replaced_count": len(existing_formations),
+            "replaced_frame_ids": [f["frame_id"] for f in existing_formations] if existing_formations else [],
         }
         
     except Exception as e:

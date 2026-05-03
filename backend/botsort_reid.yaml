@@ -1,0 +1,15 @@
+# Custom BoT-SORT config with ReID enabled for person-based tracking
+tracker_type: botsort
+track_high_thresh: 0.3
+track_low_thresh: 0.1
+new_track_thresh: 0.4
+track_buffer: 60
+match_thresh: 0.85
+# ReID settings
+with_reid: True
+model: auto                  # use YOLO backbone features (no separate model needed)
+proximity_thresh: 0.5
+appearance_thresh: 0.25
+fuse_score: True
+# Camera motion compensation
+gmc_method: sparseOptFlow

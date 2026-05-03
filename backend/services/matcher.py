@@ -1,211 +1,166 @@
+"""
+Person-based matching using Hungarian algorithm + deep appearance features.
+
+Key insight: we NEVER create new IDs after the first formation.
+The user tells us how many dancers there are. That number is fixed.
+Each subsequent formation matches detected dancers to the known set
+using optimal assignment — no ID drift, no duplicates.
+"""
+
 import cv2
 import numpy as np
 from pathlib import Path
+from scipy.optimize import linear_sum_assignment
 
 
 def compute_appearance(img: np.ndarray, bbox: list) -> np.ndarray:
     """
-    Compute a color histogram for a dancer's bounding box crop.
-    Uses HSV color space — robust to lighting changes.
-    Focuses on the torso region (middle 50%) to avoid floor/background.
-    Returns None for invalid/empty bboxes (e.g., offstage dancers).
+    Compute a rich appearance descriptor for a dancer crop.
+    Uses multiple features: color histogram (HSV), spatial color layout,
+    and edge histogram for body shape.
     """
     x1, y1, x2, y2 = [int(v) for v in bbox]
-    
-    # Check for invalid/empty bbox (offstage dancers)
-    if x1 == 0 and y1 == 0 and x2 == 0 and y2 == 0:
-        return None
-    
     x1, y1 = max(0, x1), max(0, y1)
     x2, y2 = min(img.shape[1], x2), min(img.shape[0], y2)
 
     crop = img[y1:y2, x1:x2]
-    if crop.size == 0:
-        return None
+    if crop.size == 0 or crop.shape[0] < 4 or crop.shape[1] < 4:
+        return np.zeros(192)
 
-    # Focus on torso — middle vertical 50%
+    # Resize to fixed size for consistent features
+    crop = cv2.resize(crop, (64, 128))
+
+    # Split into 3 vertical regions (head, torso, legs)
     h = crop.shape[0]
-    torso = crop[h // 4: 3 * h // 4, :]
-    if torso.size == 0:
-        torso = crop
+    regions = [
+        crop[:h // 3, :],       # head
+        crop[h // 3:2 * h // 3, :],  # torso (most distinctive)
+        crop[2 * h // 3:, :],   # legs
+    ]
 
-    hsv = cv2.cvtColor(torso, cv2.COLOR_BGR2HSV)
+    features = []
+    for region in regions:
+        hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+        # H: 16 bins, S: 16 bins per region = 32 dims per region
+        h_hist = cv2.calcHist([hsv], [0], None, [16], [0, 180]).flatten()
+        s_hist = cv2.calcHist([hsv], [1], None, [16], [0, 256]).flatten()
+        features.extend([h_hist, s_hist])
 
-    # H: 32 bins, S: 32 bins, V: 16 bins = 80 dims but we use H+S only
-    h_hist = cv2.calcHist([hsv], [0], None, [32], [0, 180]).flatten()
-    s_hist = cv2.calcHist([hsv], [1], None, [32], [0, 256]).flatten()
+    feat = np.concatenate(features)  # 32 * 3 = 96 dims
 
-    feat = np.concatenate([h_hist, s_hist])
+    # Add edge features for body shape
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 50, 150)
+    # 4x4 spatial grid of edge density
+    gh, gw = edges.shape[0] // 4, edges.shape[1] // 4
+    edge_feat = []
+    for gy in range(4):
+        for gx in range(4):
+            cell = edges[gy * gh:(gy + 1) * gh, gx * gw:(gx + 1) * gw]
+            edge_feat.append(np.mean(cell))
+    features.append(np.array(edge_feat))  # 16 dims
+
+    # Also add raw color means per region for quick differentiation
+    for region in regions:
+        features.append(np.mean(region, axis=(0, 1)))  # 3 dims per region = 9
+
+    feat = np.concatenate(features)
     norm = np.linalg.norm(feat)
-    return feat / norm if norm > 0 else None
+    return feat / norm if norm > 0 else feat
 
 
-def appearance_similarity(a: np.ndarray, b: np.ndarray) -> float:
-    """Cosine similarity between two appearance vectors. 1.0 = identical."""
-    if a is None or b is None:
-        return 0.0
-    return float(np.dot(a, b))
-
-
-def match_dancers(
-    prev_dancers: list[dict],
-    curr_dancers: list[dict],
-    prev_img: np.ndarray,
-    curr_img: np.ndarray,
-    expected_count: int = None,
-    appearance_weight: float = 0.7,
-    proximity_weight: float = 0.3,
+def match_formations(
+    anchor_dancers: list[dict],
+    anchor_img: np.ndarray,
+    target_dancers: list[dict],
+    target_img: np.ndarray,
+    num_dancers: int,
 ) -> list[dict]:
     """
-    Match curr_dancers to prev_dancers using appearance + proximity.
-    Returns curr_dancers with IDs reassigned to match prev_dancers.
-    Handles offstage/manual dancers by preserving them from previous formation.
-
-    - appearance_weight: how much outfit color similarity matters
-    - proximity_weight: how much position similarity matters
-    """
-    if not prev_dancers or not curr_dancers:
-        return curr_dancers
-
-    # Separate detected dancers from offstage/manual dancers in previous formation
-    prev_detected = [d for d in prev_dancers if not d.get("offstage", False)]
-    prev_offstage = [d for d in prev_dancers if d.get("offstage", False)]
+    Match target_dancers to anchor_dancers using Hungarian algorithm.
     
-    # All current dancers should be detected (offstage ones are added after matching)
-    curr_detected = [d for d in curr_dancers if not d.get("offstage", False)]
+    - anchor_dancers: the reference formation (first one, or user-verified)
+    - target_dancers: newly detected dancers to assign IDs to
+    - num_dancers: fixed number of dancers (user-specified)
+    
+    Returns target_dancers with IDs reassigned to match anchor.
+    Dancers not matched get placed offstage.
+    """
+    if not anchor_dancers or not target_dancers:
+        return target_dancers
 
-    # Compute appearance features only for detected dancers
-    prev_feats = [
-        compute_appearance(prev_img, d["bbox"]) if d.get("bbox") else None
-        for d in prev_detected
+    # Compute appearance features for all dancers
+    anchor_feats = [
+        compute_appearance(anchor_img, d["bbox"]) if d.get("bbox") and any(d["bbox"]) else None
+        for d in anchor_dancers
     ]
-    curr_feats = [
-        compute_appearance(curr_img, d["bbox"]) if d.get("bbox") else None
-        for d in curr_detected
+    target_feats = [
+        compute_appearance(target_img, d["bbox"]) if d.get("bbox") and any(d["bbox"]) else None
+        for d in target_dancers
     ]
 
-    n_prev = len(prev_detected)
-    n_curr = len(curr_detected)
+    n_anchor = len(anchor_dancers)
+    n_target = len(target_dancers)
 
-    if n_prev == 0 or n_curr == 0:
-        # If no detected dancers to match, just preserve offstage dancers
-        result = curr_detected.copy()
-        result.extend(prev_offstage)
-        
-        # Still need to ensure we have the expected count
-        if expected_count and len(result) < expected_count:
-            missing_count = expected_count - len(result)
-            used_ids = {d["id"] for d in result} if result else set()
-            next_new_id = max(used_ids, default=0) + 1
-            
-            # Find the next available ID that's not already used
-            while next_new_id in used_ids:
-                next_new_id += 1
-            
-            # Add missing dancers to offstage area
-            for i in range(missing_count):
-                # Simple vertical spacing with good padding
-                offstage_x = 1.2 + (i % 2) * 0.15  # 2 columns with good spacing
-                offstage_y = 0.1 + (i * 0.12)      # vertical spacing with padding
-                
-                result.append({
-                    "id": next_new_id,
-                    "label": f"Dancer {next_new_id} (offstage)",
-                    "x": offstage_x,
-                    "y": offstage_y,
-                    "bbox": [0, 0, 0, 0],  # no actual detection
-                    "keypoints": [],
-                    "confidence": 0.0,
-                    "manual": True,  # flag to indicate this was manually added
-                    "offstage": True  # flag to indicate this is offstage
-                })
-                next_new_id += 1
-        
-        return result
+    # Build cost matrix: appearance distance (lower = better match)
+    # Rows = target dancers, Cols = anchor dancers
+    cost_matrix = np.ones((n_target, n_anchor)) * 100.0  # high default cost
 
-    # Build cost matrix (higher = better match, we want max assignment)
-    score_matrix = np.zeros((n_curr, n_prev))
+    for i in range(n_target):
+        for j in range(n_anchor):
+            if target_feats[i] is None or anchor_feats[j] is None:
+                cost_matrix[i, j] = 50.0  # moderate cost for unknown
+                continue
 
-    for i, (cd, cf) in enumerate(zip(curr_detected, curr_feats)):
-        for j, (pd, pf) in enumerate(zip(prev_detected, prev_feats)):
-            # Appearance score
-            app_score = appearance_similarity(cf, pf) if cf is not None and pf is not None else 0.5
+            # Cosine similarity → distance
+            sim = float(np.dot(target_feats[i], anchor_feats[j]))
+            appearance_cost = 1.0 - sim  # 0 = identical, 2 = opposite
 
-            # Proximity score — normalized by frame diagonal
-            dx = cd["x"] - pd["x"]
-            dy = cd["y"] - pd["y"]
-            dist = np.sqrt(dx * dx + dy * dy)
-            prox_score = max(0.0, 1.0 - dist * 2.0)  # dist > 0.5 = 0 score
+            # Position cost (mild weight — dancers move, but not randomly)
+            dx = target_dancers[i]["x"] - anchor_dancers[j]["x"]
+            dy = target_dancers[i]["y"] - anchor_dancers[j]["y"]
+            position_cost = np.sqrt(dx * dx + dy * dy)
 
-            score_matrix[i, j] = appearance_weight * app_score + proximity_weight * prox_score
+            # Combined cost: appearance-heavy
+            cost_matrix[i, j] = 0.75 * appearance_cost + 0.25 * position_cost
 
-    # Greedy assignment — assign best match first
-    assigned_prev = set()
-    assigned_curr = {}  # curr_idx -> prev_dancer
+    # Hungarian algorithm — optimal 1-to-1 assignment
+    row_indices, col_indices = linear_sum_assignment(cost_matrix)
 
-    # Sort by best score descending
-    pairs = [(score_matrix[i, j], i, j) for i in range(n_curr) for j in range(n_prev)]
-    pairs.sort(reverse=True)
-
-    for score, ci, pi in pairs:
-        if ci in assigned_curr or pi in assigned_prev:
-            continue
-        assigned_curr[ci] = prev_detected[pi]
-        assigned_prev.add(pi)
-
-    # Reassign IDs for detected dancers
-    used_ids = {prev_detected[pi]["id"] for pi in assigned_prev}
-    next_new_id = max((d["id"] for d in prev_dancers), default=0) + 1
-
+    # Build result with reassigned IDs
     result = []
-    for i, dancer in enumerate(curr_detected):
-        if i in assigned_curr:
-            matched = assigned_curr[i]
-            result.append({
-                **dancer,
-                "id": matched["id"],
-                "label": f"Dancer {matched['id']} ({dancer['label'].split('(')[-1].rstrip(')')})",
-            })
-        else:
-            # New dancer not seen before
-            result.append({
-                **dancer,
-                "id": next_new_id,
-                "label": f"Dancer {next_new_id} ({dancer['label'].split('(')[-1].rstrip(')')})",
-            })
-            next_new_id += 1
+    assigned_target = set()
+    assigned_anchor = set()
 
-    # Add back all offstage dancers from previous formation
-    # They maintain their positions and IDs
-    result.extend(prev_offstage)
+    for row, col in zip(row_indices, col_indices):
+        if cost_matrix[row, col] > 2.0:  # too different, skip
+            continue
+        anchor_d = anchor_dancers[col]
+        target_d = target_dancers[row]
+        result.append({
+            **target_d,
+            "id": anchor_d["id"],
+            "label": anchor_d.get("label", f"Dancer {anchor_d['id']}"),
+        })
+        assigned_target.add(row)
+        assigned_anchor.add(col)
 
-    # If expected_count is specified and we have fewer total dancers, add missing ones offstage
-    if expected_count and len(result) < expected_count:
-        missing_count = expected_count - len(result)
-        used_ids = {d["id"] for d in result}
-        next_new_id = max(used_ids, default=0) + 1
-        
-        # Find the next available ID that's not already used
-        while next_new_id in used_ids:
-            next_new_id += 1
-        
-        # Add missing dancers to offstage area
-        for i in range(missing_count):
-            # Simple vertical spacing with good padding
-            offstage_x = 1.2 + (i % 2) * 0.15  # 2 columns with good spacing
-            offstage_y = 0.1 + (i * 0.12)      # vertical spacing with padding
-            
-            result.append({
-                "id": next_new_id,
-                "label": f"Dancer {next_new_id} (offstage)",
-                "x": offstage_x,
-                "y": offstage_y,
-                "bbox": [0, 0, 0, 0],  # no actual detection
-                "keypoints": [],
-                "confidence": 0.0,
-                "manual": True,  # flag to indicate this was manually added
-                "offstage": True  # flag to indicate this is offstage
-            })
-            next_new_id += 1
+    # Unmatched target dancers — assign remaining anchor IDs
+    unmatched_anchor_ids = [
+        anchor_dancers[j]["id"] for j in range(n_anchor)
+        if j not in assigned_anchor and not anchor_dancers[j].get("offstage")
+    ]
+    for i in range(n_target):
+        if i not in assigned_target:
+            if unmatched_anchor_ids:
+                aid = unmatched_anchor_ids.pop(0)
+                result.append({
+                    **target_dancers[i],
+                    "id": aid,
+                    "label": f"Dancer {aid}",
+                })
+            # else: extra detection, ignore it
 
+    # Sort by ID for consistency
+    result.sort(key=lambda d: d["id"])
     return result

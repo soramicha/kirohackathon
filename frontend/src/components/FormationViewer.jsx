@@ -651,15 +651,22 @@ export default function FormationViewer({ session, formations: initialFormations
           const W = 780, H = 480, PAD_VAL = 48;
           const stageLeft = PAD_VAL;
           const stageRight = W - PAD_VAL - 180;
-          const isOffstage = d.cx < stageLeft || d.cx > stageRight;
-          // normalize x_top within 0-1 for onstage, flag offstage separately
+          // Generous offstage check — if center is within RADIUS of the border, count as offstage
+          const MARGIN = 20; // pixels of grace zone
+          const isOffstage = d.offstage === true || d.cx < (stageLeft + MARGIN) || d.cx > (stageRight - MARGIN);
           const nx = (d.cx - stageLeft) / (stageRight - stageLeft);
           const ny = (d.cy - PAD_VAL) / (H - PAD_VAL * 2);
           return {
-            ...d,
-            offstage: isOffstage,
+            id: d.id,
+            label: d.label,
+            x: d.x,
+            y: d.y,
             x_top: round(Math.max(-0.1, Math.min(1.1, nx)), 4),
             y_top: round(Math.max(0, Math.min(1, ny)), 4),
+            bbox: d.bbox || [0, 0, 0, 0],
+            keypoints: d.keypoints || [],
+            confidence: d.confidence || 0,
+            offstage: isOffstage,
           };
         })
       })));
@@ -723,9 +730,28 @@ export default function FormationViewer({ session, formations: initialFormations
         })),
       };
 
-      // Add to formations and sort by timestamp
+      // CRITICAL: Remove ALL formations at this EXACT timestamp (within 0.01s tolerance for floating point precision)
+      // Backend already deleted the files, now we need to clean up frontend state
       setFormations((prev) => {
-        const updated = [...prev, newFormation];
+        console.log(`Before cleanup: ${prev.length} formations`);
+        console.log(`Looking for duplicates near timestamp ${result.timestamp}s`);
+        
+        // First, remove any existing formations at this EXACT timestamp (0.01s tolerance)
+        const TOLERANCE = 0.01;
+        const filtered = prev.filter((f) => {
+          const isDuplicate = Math.abs(f.timestamp - result.timestamp) <= TOLERANCE;
+          if (isDuplicate) {
+            console.log(`  🗑️ Removing duplicate: ${f.frame_id} at ${f.timestamp}s (diff: ${Math.abs(f.timestamp - result.timestamp).toFixed(3)}s)`);
+          }
+          return !isDuplicate;
+        });
+        
+        console.log(`After cleanup: ${filtered.length} formations (removed ${prev.length - filtered.length})`);
+        
+        // Then add the new formation
+        const updated = [...filtered, newFormation];
+        
+        // Sort by timestamp
         updated.sort((a, b) => a.timestamp - b.timestamp);
         
         // Find and set the index of the newly added formation
@@ -733,12 +759,16 @@ export default function FormationViewer({ session, formations: initialFormations
         // Safety check: ensure index is valid (findIndex returns -1 if not found)
         setActiveIdx(newIdx >= 0 ? newIdx : 0);
         
+        console.log(`✅ Final: ${updated.length} formations, active index: ${newIdx}`);
+        
         return updated;
       });
 
       setAddFormationMessage({ 
         type: "success", 
-        text: `Formation added at ${formatTime(timestampSeconds)} (${result.dancer_count} dancers)` 
+        text: result.updated 
+          ? `Formation updated at ${formatTime(timestampSeconds)} (${result.dancer_count} dancers)`
+          : `Formation added at ${formatTime(timestampSeconds)} (${result.dancer_count} dancers)` 
       });
       setShowAddFormation(false);
       setNewTimestamp("");
