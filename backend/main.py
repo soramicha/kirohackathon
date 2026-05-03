@@ -13,6 +13,7 @@ app.add_middleware(
         "http://localhost:5173",
         "http://localhost:3000",
         "http://kirohackathon-kzbn.vercel.app",
+        "https://kirohackathon-kzbn-57aitxjp4-soramichas-projects.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
