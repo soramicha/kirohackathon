@@ -12,55 +12,126 @@ COOKIES_FILE = os.environ.get("YOUTUBE_COOKIES_FILE", "cookies.txt")
 
 def download_video(url: str, session_id: str) -> dict:
     """
-    Download a YouTube video using yt-dlp and save to the session directory.
+    Download a YouTube video using yt-dlp with multiple fallback strategies.
+    Handles both local and cloud environments robustly.
     Returns metadata dict.
     """
     session_dir = Path(f"sessions/{session_id}")
     session_dir.mkdir(parents=True, exist_ok=True)
     video_path = session_dir / "video.mp4"
 
-    ydl_opts = {
-        "format": "best",  # Simplest: just get the best available format
-        "outtmpl": str(video_path),
-        "quiet": True,
-        "no_warnings": True,
-    }
+    # Try multiple format strategies in order of preference
+    format_strategies = [
+        # Strategy 1: Best quality with merging (requires ffmpeg)
+        {
+            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "merge_output_format": "mp4",
+            "description": "Best quality MP4 with merging"
+        },
+        # Strategy 2: Best single file (no merging)
+        {
+            "format": "best[ext=mp4]/best",
+            "description": "Best single MP4 file"
+        },
+        # Strategy 3: Universal fallback (any format)
+        {
+            "format": "best",
+            "description": "Best available format"
+        },
+    ]
 
-    # Use cookies file if available to avoid YouTube bot detection
-    # NOTE: Render Secret Files are read-only, so copy to temp location first
+    # Handle cookies
     cookies_path = Path(COOKIES_FILE)
+    temp_cookie_path = None
+    
     if cookies_path.exists():
-        # Copy to writable temp location (yt-dlp may try to update cookies)
-        temp_cookie_path = Path(tempfile.gettempdir()) / "cookies.txt"
-        shutil.copyfile(cookies_path, temp_cookie_path)
-        ydl_opts["cookiefile"] = str(temp_cookie_path)
-        print(f"Using cookies from temp copy: {temp_cookie_path}")
+        try:
+            # Copy to writable temp location (yt-dlp may try to update cookies)
+            temp_cookie_path = Path(tempfile.gettempdir()) / f"cookies_{session_id}.txt"
+            shutil.copyfile(cookies_path, temp_cookie_path)
+            print(f"✓ Using cookies from: {cookies_path}")
+        except Exception as e:
+            print(f"⚠ Could not copy cookies: {e}")
+            temp_cookie_path = None
     else:
-        print("No cookies file - proceeding without authentication")
+        print("ℹ No cookies file - proceeding without authentication")
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        # yt-dlp may append extension — find the actual file
-        actual_path = video_path
-        if not actual_path.exists():
-            candidates = list(session_dir.glob("video.*"))
-            actual_path = candidates[0] if candidates else video_path
+    # Try each format strategy until one works
+    last_error = None
+    for i, strategy in enumerate(format_strategies, 1):
+        try:
+            print(f"→ Attempt {i}/{len(format_strategies)}: {strategy['description']}")
+            
+            ydl_opts = {
+                "format": strategy["format"],
+                "outtmpl": str(video_path),
+                "quiet": True,
+                "no_warnings": True,
+            }
+            
+            # Add merge format if specified
+            if "merge_output_format" in strategy:
+                ydl_opts["merge_output_format"] = strategy["merge_output_format"]
+            
+            # Add cookies if available
+            if temp_cookie_path and temp_cookie_path.exists():
+                ydl_opts["cookiefile"] = str(temp_cookie_path)
 
-        metadata = {
-            "title": info.get("title"),
-            "duration": info.get("duration"),  # seconds
-            "thumbnail": info.get("thumbnail"),
-            "uploader": info.get("uploader"),
-            "url": url,
-            "video_path": str(actual_path),
-        }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                
+                # yt-dlp may append extension — find the actual file
+                actual_path = video_path
+                if not actual_path.exists():
+                    candidates = list(session_dir.glob("video.*"))
+                    actual_path = candidates[0] if candidates else video_path
 
-    # persist metadata
-    meta_path = session_dir / "metadata.json"
-    with open(meta_path, "w") as f:
-        json.dump(metadata, f, indent=2)
+                metadata = {
+                    "title": info.get("title"),
+                    "duration": info.get("duration"),  # seconds
+                    "thumbnail": info.get("thumbnail"),
+                    "uploader": info.get("uploader"),
+                    "url": url,
+                    "video_path": str(actual_path),
+                }
 
-    return metadata
+                # persist metadata
+                meta_path = session_dir / "metadata.json"
+                with open(meta_path, "w") as f:
+                    json.dump(metadata, f, indent=2)
+
+                print(f"✓ Success with strategy {i}: {strategy['description']}")
+                
+                # Clean up temp cookies
+                if temp_cookie_path and temp_cookie_path.exists():
+                    try:
+                        temp_cookie_path.unlink()
+                    except:
+                        pass
+                
+                return metadata
+                
+        except Exception as e:
+            last_error = e
+            error_str = str(e).lower()
+            print(f"✗ Strategy {i} failed: {str(e)[:100]}")
+            
+            # If cookies are causing issues, disable them for next attempts
+            if temp_cookie_path and ("format is not available" in error_str or "sign in" in error_str):
+                print("  → Cookies may be causing issues, disabling for next attempts")
+                if temp_cookie_path.exists():
+                    try:
+                        temp_cookie_path.unlink()
+                    except:
+                        pass
+                temp_cookie_path = None
+            
+            continue
+    
+    # All strategies failed
+    error_msg = f"All download strategies failed. Last error: {last_error}"
+    print(f"✗ {error_msg}")
+    raise Exception(error_msg)
 
 
 def get_metadata(session_id: str) -> dict:
