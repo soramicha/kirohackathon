@@ -433,11 +433,13 @@ export default function FormationViewer({ session, formations: initialFormations
   // Global dancer registry — persists across formations
   const registry = buildRegistry(formations);
 
-  const active = formations[activeIdx];
+  // Safety check: ensure activeIdx is valid
+  const safeActiveIdx = Math.min(activeIdx, formations.length - 1);
+  const active = formations.length > 0 ? formations[safeActiveIdx] : null;
 
   function handleDancersChange(newDancers) {
     setFormations((prev) =>
-      prev.map((f, i) => i === activeIdx ? { ...f, dancers: newDancers } : f)
+      prev.map((f, i) => i === safeActiveIdx ? { ...f, dancers: newDancers } : f)
     );
   }
 
@@ -754,7 +756,8 @@ export default function FormationViewer({ session, formations: initialFormations
         
         // Find and set the index of the newly added formation
         const newIdx = updated.findIndex((f) => f.frame_id === result.frame_id);
-        setActiveIdx(newIdx);
+        // Safety check: ensure index is valid (findIndex returns -1 if not found)
+        setActiveIdx(newIdx >= 0 ? newIdx : 0);
         
         console.log(`✅ Final: ${updated.length} formations, active index: ${newIdx}`);
         
@@ -794,10 +797,10 @@ export default function FormationViewer({ session, formations: initialFormations
       setFormations((prev) => {
         const updated = prev.filter((f) => f.frame_id !== active.frame_id);
         
-        // Adjust active index
+        // Adjust active index - use safeActiveIdx to avoid errors
         if (updated.length === 0) {
           setActiveIdx(0);
-        } else if (activeIdx >= updated.length) {
+        } else if (safeActiveIdx >= updated.length) {
           setActiveIdx(updated.length - 1);
         }
         
@@ -1038,17 +1041,21 @@ export default function FormationViewer({ session, formations: initialFormations
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Left: Video Player */}
           <div className="flex flex-col gap-2">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              Video Playback
-            </p>
-            <VideoPlayer
-              ref={videoPlayerRef}
-              src={videoStreamUrl(session.session_id)}
-              formations={formations}
-              onFormationChange={handleFormationChange}
-              sessionId={session.session_id}
-            />
-          </div>
+  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+    Video Playback
+  </p>
+
+  <div className="h-[500px] flex justify-center bg-black">
+    <VideoPlayer
+      ref={videoPlayerRef}
+      src={videoStreamUrl(session.session_id)}
+      formations={formations}
+      onFormationChange={handleFormationChange}
+      sessionId={session.session_id}
+      className="h-full w-auto"
+    />
+  </div>
+</div>
 
           {/* Right: interactive stage canvas */}
           <div className="flex flex-col gap-2">

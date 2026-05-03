@@ -84,10 +84,25 @@ def extract_frames(
 
     cap.release()
 
-    # persist frame index
+    # persist frame index - MERGE with existing entries to avoid overwriting manual formations
     index_path = session_dir / "frames_index.json"
+    
+    # Load existing index if it exists
+    existing_index = []
+    if index_path.exists():
+        with open(index_path) as f:
+            existing_index = json.load(f)
+    
+    # Merge: keep existing entries that aren't in the new extracted list
+    existing_frame_ids = {e["frame_id"] for e in extracted}
+    merged_index = [e for e in existing_index if e["frame_id"] not in existing_frame_ids]
+    merged_index.extend(extracted)
+    
+    # Sort by timestamp
+    merged_index.sort(key=lambda x: x.get("timestamp", 0))
+    
     with open(index_path, "w") as f:
-        json.dump(extracted, f, indent=2)
+        json.dump(merged_index, f, indent=2)
 
     return extracted
 

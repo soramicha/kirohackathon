@@ -1,12 +1,14 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from services.downloader import download_video, get_metadata
+from services.downloader import download_video, get_metadata, resize_video_if_needed
 from services.extractor import extract_frames, detect_formation_timestamps
 from services.session import create_session, get_session, update_session
 from config import DetectionPresets, FormationDetectionConfig
 from pathlib import Path
 import os
+import shutil
+import cv2
 
 router = APIRouter()
 
@@ -27,7 +29,7 @@ class ScanRequest(BaseModel):
 @router.post("/process")
 def process_video(req: VideoRequest):
     """
-    Download video and return metadata immediately. Ready for manual timestamps.
+    Download video from URL and return metadata immediately. Ready for manual timestamps.
     """
     try:
         session_id = create_session(req.url)
@@ -40,6 +42,100 @@ def process_video(req: VideoRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/upload")
+async def upload_video(file: UploadFile = File(...)):
+    """
+    Upload a video file directly instead of using a URL.
+    Accepts: mp4, mov, avi, webm, mkv
+    Max size: 500MB
+    """
+    # Validate file type
+    allowed_extensions = {".mp4", ".mov", ".avi", ".webm", ".mkv"}
+    file_ext = Path(file.filename).suffix.lower()
+    
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid file type '{file_ext}'. Allowed: {', '.join(allowed_extensions)}"
+        )
+    
+    # Validate file size (max 500MB)
+    max_size = 500 * 1024 * 1024
+    file.file.seek(0, 2)  # Seek to end
+    file_size = file.file.tell()
+    file.file.seek(0)  # Reset to beginning
+    
+    if file_size > max_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large ({file_size / (1024*1024):.1f}MB). Maximum size is 500MB."
+        )
+    
+    try:
+        # Create session
+        session_id = create_session(f"upload:{file.filename}")
+        session_dir = Path(f"sessions/{session_id}")
+        session_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save uploaded file
+        video_path = session_dir / "video.mp4"
+        with open(video_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        print(f"Uploaded video saved: {video_path}")
+        
+        # Resize video if needed (max height 480px - standard definition)
+        video_path = resize_video_if_needed(video_path, max_height=480)
+        
+        # Extract metadata using OpenCV
+        cap = cv2.VideoCapture(str(video_path))
+        
+        if not cap.isOpened():
+            raise HTTPException(status_code=400, detail="Could not open video file. File may be corrupted.")
+        
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        duration = total_frames / fps if fps > 0 else 0
+        cap.release()
+        
+        if duration == 0:
+            raise HTTPException(status_code=400, detail="Could not determine video duration. File may be invalid.")
+        
+        # Create metadata
+        metadata = {
+            "title": file.filename,
+            "duration": duration,
+            "thumbnail": None,
+            "uploader": "File Upload",
+            "url": f"upload:{file.filename}",
+            "video_path": str(video_path),
+            "width": width,
+            "height": height,
+            "fps": fps,
+        }
+        
+        # Save metadata
+        import json
+        meta_path = session_dir / "metadata.json"
+        with open(meta_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+        
+        update_session(session_id, {"status": "uploaded"})
+        
+        return {
+            "session_id": session_id,
+            "metadata": metadata,
+            "auto_timestamps": [],
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 @router.post("/scan/{session_id}")
