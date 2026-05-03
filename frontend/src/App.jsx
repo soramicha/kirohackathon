@@ -68,7 +68,7 @@ export default function App() {
       </div>
 
       {/* Main content */}
-      <main className="max-w-7xl mx-auto px-6 py-10">
+      <main className={`max-w-7xl mx-auto px-6 ${step === "input" ? "py-0" : "py-10"}`}>
         {step === "input" && (
           <VideoInput onProcessed={handleVideoProcessed} />
         )}
