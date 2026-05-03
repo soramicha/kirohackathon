@@ -1,6 +1,8 @@
 import yt_dlp
 import json
 import os
+import tempfile
+import shutil
 from pathlib import Path
 
 # Path to a Netscape-format cookies.txt file for YouTube authentication.
@@ -25,13 +27,16 @@ def download_video(url: str, session_id: str) -> dict:
     }
 
     # Use cookies file if available to avoid YouTube bot detection
-    # NOTE: Only use cookies if explicitly provided, as bad/expired cookies cause errors
+    # NOTE: Render Secret Files are read-only, so copy to temp location first
     cookies_path = Path(COOKIES_FILE)
     if cookies_path.exists():
-        ydl_opts["cookiefile"] = str(cookies_path)
-        print(f"Using cookies from: {cookies_path}")
+        # Copy to writable temp location (yt-dlp may try to update cookies)
+        temp_cookie_path = Path(tempfile.gettempdir()) / "cookies.txt"
+        shutil.copyfile(cookies_path, temp_cookie_path)
+        ydl_opts["cookiefile"] = str(temp_cookie_path)
+        print(f"Using cookies from temp copy: {temp_cookie_path}")
     else:
-        print("No cookies file - proceeding without authentication (works for most public videos)")
+        print("No cookies file - proceeding without authentication")
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
