@@ -12,6 +12,7 @@ COOKIES_FILE = os.environ.get("YOUTUBE_COOKIES_FILE", "cookies.txt")
 def resize_video_if_needed(video_path: Path, max_height: int = 480) -> Path:
     """
     Resize video to max height while maintaining aspect ratio.
+    Uses high-quality encoding settings.
     Returns the path to the resized video (or original if no resize needed).
     """
     cap = cv2.VideoCapture(str(video_path))
@@ -33,15 +34,24 @@ def resize_video_if_needed(video_path: Path, max_height: int = 480) -> Path:
     # Calculate new dimensions
     new_height = max_height
     new_width = int(width * (new_height / height))
+    # Ensure dimensions are even (required for some codecs)
+    new_width = new_width if new_width % 2 == 0 else new_width + 1
+    new_height = new_height if new_height % 2 == 0 else new_height + 1
     
     print(f"Resizing video from {width}x{height} to {new_width}x{new_height}")
     
     # Create temporary output path
     temp_path = video_path.parent / f"{video_path.stem}_resized.mp4"
     
-    # Setup video writer
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    # Use H.264 codec with high quality settings
+    # avc1 is H.264 which provides much better quality than mp4v
+    fourcc = cv2.VideoWriter_fourcc(*'avc1')
     out = cv2.VideoWriter(str(temp_path), fourcc, fps, (new_width, new_height))
+    
+    if not out.isOpened():
+        print("Warning: Could not open video writer with avc1, trying mp4v")
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(str(temp_path), fourcc, fps, (new_width, new_height))
     
     # Process frames
     frame_count = 0
@@ -50,8 +60,9 @@ def resize_video_if_needed(video_path: Path, max_height: int = 480) -> Path:
         if not ret:
             break
         
-        # Resize frame
-        resized_frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+        # Resize frame with high-quality interpolation
+        # INTER_LANCZOS4 provides best quality for downscaling
+        resized_frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LANCZOS4)
         out.write(resized_frame)
         frame_count += 1
         
