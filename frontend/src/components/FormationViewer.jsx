@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { exportSession, saveFormations, imageUrl, videoStreamUrl } from "../api";
+import { exportSession, saveFormations, imageUrl, videoStreamUrl, addFormation, deleteFormation } from "../api";
 import VideoPlayer from "./VideoPlayer";
 
 function formatTime(seconds) {
@@ -254,7 +254,7 @@ function fromCanvas(cx, cy, W, H) {
   return { nx, ny };
 }
 
-function StageCanvas({ dancers, registry, onDancersChange, addMode, removeMode, onRemoveDancer }) {
+function StageCanvas({ dancers, registry, onDancersChange, addMode, removeMode, onRemoveDancer, relabelMode, onShowRelabelOptions }) {
   const canvasRef = useRef(null);
   const draggingRef = useRef(null);
   const dancersRef = useRef(dancers);
@@ -304,7 +304,16 @@ function StageCanvas({ dancers, registry, onDancersChange, addMode, removeMode, 
       return;
     }
     
-    if (hit && !removeMode) {
+    if (hit && relabelMode) {
+      // Show relabel options for the clicked dancer
+      const rect = canvasRef.current.getBoundingClientRect();
+      const screenX = e.clientX;
+      const screenY = e.clientY;
+      onShowRelabelOptions(hit.id, screenX, screenY);
+      return;
+    }
+    
+    if (hit && !removeMode && !relabelMode) {
       // Start dragging the dancer
       draggingRef.current = { id: hit.id, offsetX: x - hit.cx, offsetY: y - hit.cy };
     } else if (addMode) {
@@ -373,6 +382,7 @@ function StageCanvas({ dancers, registry, onDancersChange, addMode, removeMode, 
       className={`w-full rounded-lg ${
         addMode ? "cursor-crosshair" : 
         removeMode ? "cursor-pointer" : 
+        relabelMode ? "cursor-pointer" :
         "cursor-grab active:cursor-grabbing"
       }`}
       style={{ background: "#111318" }}
@@ -403,10 +413,20 @@ export default function FormationViewer({ session, formations: initialFormations
   const [activeIdx, setActiveIdx] = useState(0);
   const [addMode, setAddMode] = useState(false);
   const [removeMode, setRemoveMode] = useState(false);
+  const [relabelMode, setRelabelMode] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [showAddFormation, setShowAddFormation] = useState(false);
+  const [newTimestamp, setNewTimestamp] = useState("");
+  const [addingFormation, setAddingFormation] = useState(false);
+  const [addFormationMessage, setAddFormationMessage] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingFormation, setDeletingFormation] = useState(false);
   const [editingDancer, setEditingDancer] = useState(null);
   const [editingName, setEditingName] = useState("");
   const [lastRemovedDancer, setLastRemovedDancer] = useState(null);
+  const [selectedDancerForRelabel, setSelectedDancerForRelabel] = useState(null);
+  const [showRelabelDropdown, setShowRelabelDropdown] = useState(false);
+  const [relabelDropdownPosition, setRelabelDropdownPosition] = useState({ x: 0, y: 0 });
 
   const videoPlayerRef = useRef(null);
 
@@ -442,12 +462,130 @@ export default function FormationViewer({ session, formations: initialFormations
 
   function toggleAddMode() {
     setAddMode(!addMode);
-    setRemoveMode(false); // Exit remove mode when entering add mode
+    setRemoveMode(false);
+    setRelabelMode(false);
+    setShowRelabelDropdown(false);
   }
 
   function toggleRemoveMode() {
     setRemoveMode(!removeMode);
-    setAddMode(false); // Exit add mode when entering remove mode
+    setAddMode(false);
+    setRelabelMode(false);
+    setShowRelabelDropdown(false);
+  }
+
+  function toggleRelabelMode() {
+    setRelabelMode(!relabelMode);
+    setAddMode(false);
+    setRemoveMode(false);
+    setSelectedDancerForRelabel(null);
+    setShowRelabelDropdown(false);
+  }
+
+  function showRelabelOptions(dancerId, x, y) {
+    setSelectedDancerForRelabel(dancerId);
+    setRelabelDropdownPosition({ x, y });
+    setShowRelabelDropdown(true);
+  }
+
+  function relabelDancer(newLabel, newId) {
+    if (selectedDancerForRelabel) {
+      // Find the target dancer's current data to swap with
+      const targetDancer = Object.values(registry).find(d => d.id === newId);
+      const currentDancer = Object.values(registry).find(d => d.id === selectedDancerForRelabel);
+      
+      if (targetDancer && currentDancer && newId !== selectedDancerForRelabel) {
+        // Perform a complete identity swap across ALL formations
+        setFormations(prev => 
+          prev.map(formation => ({
+            ...formation,
+            dancers: formation.dancers.map(dancer => {
+              if (dancer.id === selectedDancerForRelabel) {
+                // Change this dancer to the target identity
+                return { ...dancer, id: newId, label: newLabel };
+              } else if (dancer.id === newId) {
+                // Change the target dancer to the current identity
+                return { ...dancer, id: selectedDancerForRelabel, label: currentDancer.label };
+              }
+              return dancer;
+            })
+          }))
+        );
+      } else if (newId === selectedDancerForRelabel) {
+        // Just updating the label, keeping the same ID
+        setFormations(prev => 
+          prev.map(formation => ({
+            ...formation,
+            dancers: formation.dancers.map(dancer => 
+              dancer.id === selectedDancerForRelabel 
+                ? { ...dancer, label: newLabel }
+                : dancer
+            )
+          }))
+        );
+      }
+      
+      setShowRelabelDropdown(false);
+      setSelectedDancerForRelabel(null);
+    }
+  }
+
+  function deleteDancerFromAllFormations(dancerId) {
+    const dancerLabel = registry[dancerId]?.label || `Dancer ${dancerId}`;
+    if (confirm(`Are you sure you want to delete "${dancerLabel}" from all formations? This cannot be undone.`)) {
+      // Remove the dancer from all formations
+      setFormations(prev => 
+        prev.map(formation => ({
+          ...formation,
+          dancers: formation.dancers.filter(dancer => dancer.id !== dancerId)
+        }))
+      );
+    }
+  }
+
+  function addDancerToAllFormations() {
+    // Find the next available ID
+    const allDancerIds = formations.flatMap(f => f.dancers.map(d => d.id));
+    const maxId = Math.max(0, ...allDancerIds);
+    const newId = maxId + 1;
+    
+    // Add the new dancer to all formations in offstage area
+    setFormations(prev => 
+      prev.map(formation => {
+        // Calculate offstage position based on existing offstage dancers in this formation
+        const existingOffstage = formation.dancers.filter(d => d.offstage || d.x > 1.0).length;
+        const offstage_x = 1.2 + (existingOffstage % 2) * 0.15;
+        const offstage_y = 0.1 + (existingOffstage * 0.12);
+        
+        const { cx, cy } = toCanvas(offstage_x, offstage_y, 780, 480);
+        
+        const newDancer = {
+          id: newId,
+          label: `Dancer ${newId} (added)`,
+          x: offstage_x,
+          y: offstage_y,
+          x_top: offstage_x,
+          y_top: offstage_y,
+          cx,
+          cy,
+          bbox: [0, 0, 0, 0],
+          keypoints: [],
+          confidence: 0.0,
+          manual: true,
+          offstage: true
+        };
+        
+        return {
+          ...formation,
+          dancers: [...formation.dancers, newDancer]
+        };
+      })
+    );
+  }
+
+  function closeRelabelDropdown() {
+    setShowRelabelDropdown(false);
+    setSelectedDancerForRelabel(null);
   }
 
   // Get missing dancers (dancers that exist in registry but not in current formation)
@@ -540,6 +678,121 @@ export default function FormationViewer({ session, formations: initialFormations
     return Math.round(val * 10 ** decimals) / 10 ** decimals;
   }
 
+  async function handleAddFormation() {
+    // Parse timestamp (supports formats like "1:23" or "83" seconds)
+    let timestampSeconds;
+    if (newTimestamp.includes(":")) {
+      const parts = newTimestamp.split(":");
+      const minutes = parseInt(parts[0]) || 0;
+      const seconds = parseInt(parts[1]) || 0;
+      timestampSeconds = minutes * 60 + seconds;
+    } else {
+      timestampSeconds = parseFloat(newTimestamp);
+    }
+
+    if (isNaN(timestampSeconds) || timestampSeconds < 0) {
+      setAddFormationMessage({ type: "error", text: "Invalid timestamp format" });
+      setTimeout(() => setAddFormationMessage(null), 3000);
+      return;
+    }
+
+    // Check if timestamp exceeds video duration
+    if (session.metadata.duration && timestampSeconds > session.metadata.duration) {
+      setAddFormationMessage({ 
+        type: "error", 
+        text: `Timestamp exceeds video duration (${formatTime(session.metadata.duration)})` 
+      });
+      setTimeout(() => setAddFormationMessage(null), 3000);
+      return;
+    }
+
+    setAddingFormation(true);
+    try {
+      const result = await addFormation(session.session_id, timestampSeconds);
+      
+      // Convert dancers to canvas coordinates
+      const newFormation = {
+        frame_id: result.frame_id,
+        timestamp: result.timestamp,
+        dancers: result.dancers.map((d) => ({
+          ...d,
+          cx: PAD + (d.x_top ?? d.x) * (600 - PAD * 2),
+          cy: PAD + (d.y_top ?? d.y) * (480 - PAD * 2) * 0.75 + (480 - PAD * 2) * 0.05,
+        })),
+      };
+
+      // Add to formations and sort by timestamp
+      setFormations((prev) => {
+        const updated = [...prev, newFormation];
+        updated.sort((a, b) => a.timestamp - b.timestamp);
+        
+        // Find and set the index of the newly added formation
+        const newIdx = updated.findIndex((f) => f.frame_id === result.frame_id);
+        setActiveIdx(newIdx);
+        
+        return updated;
+      });
+
+      setAddFormationMessage({ 
+        type: "success", 
+        text: `Formation added at ${formatTime(timestampSeconds)} (${result.dancer_count} dancers)` 
+      });
+      setShowAddFormation(false);
+      setNewTimestamp("");
+      
+      setTimeout(() => setAddFormationMessage(null), 3000);
+    } catch (error) {
+      console.error("Add formation error:", error);
+      setAddFormationMessage({ 
+        type: "error", 
+        text: error.response?.data?.detail || "Failed to add formation" 
+      });
+      setTimeout(() => setAddFormationMessage(null), 3000);
+    } finally {
+      setAddingFormation(false);
+    }
+  }
+
+  async function handleDeleteFormation() {
+    if (!active) return;
+    
+    setDeletingFormation(true);
+    try {
+      await deleteFormation(session.session_id, active.frame_id);
+      
+      // Remove from formations
+      setFormations((prev) => {
+        const updated = prev.filter((f) => f.frame_id !== active.frame_id);
+        
+        // Adjust active index
+        if (updated.length === 0) {
+          setActiveIdx(0);
+        } else if (activeIdx >= updated.length) {
+          setActiveIdx(updated.length - 1);
+        }
+        
+        return updated;
+      });
+
+      setAddFormationMessage({ 
+        type: "success", 
+        text: `Formation deleted at ${formatTime(active.timestamp)}` 
+      });
+      setShowDeleteConfirm(false);
+      
+      setTimeout(() => setAddFormationMessage(null), 3000);
+    } catch (error) {
+      console.error("Delete formation error:", error);
+      setAddFormationMessage({ 
+        type: "error", 
+        text: error.response?.data?.detail || "Failed to delete formation" 
+      });
+      setTimeout(() => setAddFormationMessage(null), 3000);
+    } finally {
+      setDeletingFormation(false);
+    }
+  }
+
   function startEditingDancer(dancerId, currentLabel) {
     setEditingDancer(dancerId);
     setEditingName(currentLabel);
@@ -585,23 +838,158 @@ export default function FormationViewer({ session, formations: initialFormations
           <p className="text-sm text-gray-400">
             {formations.length} formation{formations.length !== 1 ? "s" : ""}
             {active ? ` · ${active.dancers?.length ?? 0} dancers` : ""}
+            {session.metadata.duration && ` · ${formatTime(session.metadata.duration)} total`}
           </p>
         </div>
-        <button
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowAddFormation(true)}
+            className="bg-violet-600 hover:bg-violet-700 px-4 py-2 rounded-lg text-sm font-medium transition"
+          >
+            ➕ Add Formation
+          </button>
+          {formations.length > 0 && (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg text-sm font-medium transition"
+            >
+              🗑️ Delete Formation
+            </button>
+          )}
+          <button
           onClick={handleExport}
           disabled={exporting}
           className="bg-gray-800 hover:bg-gray-700 disabled:opacity-40 px-4 py-2 rounded-lg text-sm transition"
         >
           {exporting ? "Exporting…" : "⬇ Download PDF"}
         </button>
+        </div>
       </div>
+
+      {/* Add Formation Modal */}
+      {showAddFormation && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <h3 className="text-lg font-semibold mb-4">Add New Formation</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              Enter the timestamp where you want to generate a new formation. The system will automatically detect dancers at that moment.
+            </p>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Timestamp
+              </label>
+              <input
+                type="text"
+                value={newTimestamp}
+                onChange={(e) => setNewTimestamp(e.target.value)}
+                placeholder="e.g., 1:23 or 83"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !addingFormation) {
+                    handleAddFormation();
+                  }
+                }}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Format: MM:SS or seconds (e.g., "1:23" or "83")
+                {session.metadata.duration && ` · Max: ${formatTime(session.metadata.duration)}`}
+              </p>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => {
+                  setShowAddFormation(false);
+                  setNewTimestamp("");
+                }}
+                disabled={addingFormation}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-800 hover:bg-gray-700 disabled:opacity-40 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddFormation}
+                disabled={addingFormation || !newTimestamp.trim()}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-violet-600 hover:bg-violet-700 disabled:opacity-40 transition"
+              >
+                {addingFormation ? "Generating…" : "Generate Formation"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && active && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-red-900/50 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-600/20 flex items-center justify-center">
+                <span className="text-xl">⚠️</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-red-400 mb-1">Delete Formation?</h3>
+                <p className="text-sm text-gray-400">
+                  This will permanently delete the formation at <span className="font-mono text-white">{formatTime(active.timestamp)}</span> with {active.dancers?.length ?? 0} dancers.
+                </p>
+              </div>
+            </div>
+            
+            <div className="bg-red-950/30 border border-red-900/30 rounded-lg p-3 mb-4">
+              <p className="text-xs text-red-300">
+                <strong>Warning:</strong> This action cannot be undone. The frame image, top-down view, and dancer data will be permanently deleted.
+              </p>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deletingFormation}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-800 hover:bg-gray-700 disabled:opacity-40 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteFormation}
+                disabled={deletingFormation}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 disabled:opacity-40 transition"
+              >
+                {deletingFormation ? "Deleting…" : "Delete Formation"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success/Error Message */}
+      {addFormationMessage && (
+        <div
+          className={`fixed top-4 right-4 px-4 py-3 rounded-lg shadow-lg z-50 ${
+            addFormationMessage.type === "success"
+              ? "bg-green-600 text-white"
+              : "bg-red-600 text-white"
+          }`}
+        >
+          {addFormationMessage.text}
+        </div>
+      )}
 
       {/* Formation timeline */}
       <div className="flex gap-2 overflow-x-auto pb-1">
         {formations.map((f, i) => (
           <button
             key={f.frame_id}
-            onClick={() => { setActiveIdx(i); setAddMode(false); setRemoveMode(false); setLastRemovedDancer(null); }}
+            onClick={() => { 
+              setActiveIdx(i); 
+              setAddMode(false); 
+              setRemoveMode(false); 
+              setRelabelMode(false);
+              setShowRelabelDropdown(false);
+              setSelectedDancerForRelabel(null);
+              setLastRemovedDancer(null); 
+            }}
             className={`flex-shrink-0 flex flex-col items-center gap-1 px-3 py-2 rounded-xl border transition ${
               i === activeIdx
                 ? "border-violet-500 bg-violet-950 text-white"
@@ -659,6 +1047,16 @@ export default function FormationViewer({ session, formations: initialFormations
                 >
                   {removeMode ? "✕ Cancel" : "− Remove"}
                 </button>
+                <button
+                  onClick={toggleRelabelMode}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition ${
+                    relabelMode
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                  }`}
+                >
+                  {relabelMode ? "✕ Cancel" : "🏷️ Relabel"}
+                </button>
                 {lastRemovedDancer && (
                   <button
                     onClick={undoRemove}
@@ -669,6 +1067,11 @@ export default function FormationViewer({ session, formations: initialFormations
                 )}
               </div>
             </div>
+            {relabelMode && (
+              <p className="text-xs text-blue-400 bg-blue-950 rounded-lg px-3 py-1.5">
+                Click on any dancer dot to swap their identity (color + label) with another dancer
+              </p>
+            )}
             {addMode && (
               <div className="space-y-2">
                 <p className="text-xs text-violet-400 bg-violet-950 rounded-lg px-3 py-1.5">
@@ -713,20 +1116,91 @@ export default function FormationViewer({ session, formations: initialFormations
                 addMode={addMode}
                 removeMode={removeMode}
                 onRemoveDancer={removeDancer}
+                relabelMode={relabelMode}
+                onShowRelabelOptions={showRelabelOptions}
               />
             </div>
+            
+            {/* Relabel Dropdown */}
+            {showRelabelDropdown && (
+              <div 
+                className="fixed bg-gray-800 border border-gray-600 rounded-lg shadow-lg z-50 p-2 min-w-48"
+                style={{ 
+                  left: relabelDropdownPosition.x, 
+                  top: relabelDropdownPosition.y,
+                  transform: 'translate(-50%, -100%)'
+                }}
+              >
+                <div className="text-xs font-medium text-gray-300 mb-2 px-2">
+                  Relabel Dancer {selectedDancerForRelabel} as:
+                </div>
+                <div className="max-h-48 overflow-y-auto">
+                  {Object.values(registry).map((dancer) => (
+                    <button
+                      key={dancer.id}
+                      onClick={() => relabelDancer(dancer.label, dancer.id)}
+                      className={`w-full flex items-center gap-2 px-2 py-1 text-xs hover:bg-gray-700 rounded transition ${
+                        dancer.id === selectedDancerForRelabel ? 'bg-gray-700' : ''
+                      }`}
+                      disabled={dancer.id === selectedDancerForRelabel}
+                    >
+                      <span
+                        className="w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                        style={{ background: dancer.color }}
+                      >
+                        {dancer.id}
+                      </span>
+                      <span className="text-gray-200 truncate">
+                        {dancer.label}
+                        {dancer.id === selectedDancerForRelabel && ' (current)'}
+                      </span>
+                    </button>
+                  ))}
+                  <hr className="border-gray-600 my-1" />
+                  <button
+                    onClick={() => relabelDancer(`Dancer ${selectedDancerForRelabel} (custom)`, selectedDancerForRelabel)}
+                    className="w-full px-2 py-1 text-xs text-gray-300 hover:bg-gray-700 rounded transition"
+                  >
+                    + Just Change Label (Keep Color)
+                  </button>
+                </div>
+                <button
+                  onClick={closeRelabelDropdown}
+                  className="w-full mt-2 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            
+            {/* Click outside to close dropdown */}
+            {showRelabelDropdown && (
+              <div 
+                className="fixed inset-0 z-40"
+                onClick={closeRelabelDropdown}
+              />
+            )}
           </div>
         </div>
       )}
 
       {/* Dancer registry — persistent across all formations */}
       <div className="bg-gray-900 rounded-xl p-4 border border-gray-800">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-          Dancer Registry — consistent across all formations (click names to edit)
-        </p>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            Dancer Registry — consistent across all formations (click names to edit)
+          </p>
+          <button
+            onClick={addDancerToAllFormations}
+            className="px-3 py-1 rounded-lg text-xs font-medium bg-green-600 text-white hover:bg-green-500 transition"
+            title="Add a new dancer to all formations (placed offstage)"
+          >
+            + Add Dancer to All
+          </button>
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
           {Object.values(registry).map((d) => (
-            <div key={d.id} className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2">
+            <div key={d.id} className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2 group">
               <span
                 className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-white"
                 style={{ background: d.color }}
@@ -744,13 +1218,22 @@ export default function FormationViewer({ session, formations: initialFormations
                   autoFocus
                 />
               ) : (
-                <span 
-                  className="text-sm text-gray-300 truncate cursor-pointer hover:text-white transition-colors"
-                  onClick={() => startEditingDancer(d.id, d.label)}
-                  title="Click to edit name"
-                >
-                  {d.label}
-                </span>
+                <>
+                  <span 
+                    className="text-sm text-gray-300 truncate cursor-pointer hover:text-white transition-colors flex-1"
+                    onClick={() => startEditingDancer(d.id, d.label)}
+                    title="Click to edit name"
+                  >
+                    {d.label}
+                  </span>
+                  <button
+                    onClick={() => deleteDancerFromAllFormations(d.id)}
+                    className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all text-xs px-1"
+                    title="Delete from all formations"
+                  >
+                    ✕
+                  </button>
+                </>
               )}
             </div>
           ))}
