@@ -254,7 +254,7 @@ function fromCanvas(cx, cy, W, H) {
   return { nx, ny };
 }
 
-function StageCanvas({ dancers, registry, onDancersChange, addMode, removeMode, onRemoveDancer }) {
+function StageCanvas({ dancers, registry, onDancersChange, addMode, removeMode, onRemoveDancer, relabelMode, onShowRelabelOptions }) {
   const canvasRef = useRef(null);
   const draggingRef = useRef(null);
   const dancersRef = useRef(dancers);
@@ -304,7 +304,16 @@ function StageCanvas({ dancers, registry, onDancersChange, addMode, removeMode, 
       return;
     }
     
-    if (hit && !removeMode) {
+    if (hit && relabelMode) {
+      // Show relabel options for the clicked dancer
+      const rect = canvasRef.current.getBoundingClientRect();
+      const screenX = e.clientX;
+      const screenY = e.clientY;
+      onShowRelabelOptions(hit.id, screenX, screenY);
+      return;
+    }
+    
+    if (hit && !removeMode && !relabelMode) {
       // Start dragging the dancer
       draggingRef.current = { id: hit.id, offsetX: x - hit.cx, offsetY: y - hit.cy };
     } else if (addMode) {
@@ -372,6 +381,7 @@ function StageCanvas({ dancers, registry, onDancersChange, addMode, removeMode, 
       className={`w-full rounded-lg ${
         addMode ? "cursor-crosshair" : 
         removeMode ? "cursor-pointer" : 
+        relabelMode ? "cursor-pointer" :
         "cursor-grab active:cursor-grabbing"
       }`}
       style={{ background: "#111318" }}
@@ -402,10 +412,14 @@ export default function FormationViewer({ session, formations: initialFormations
   const [activeIdx, setActiveIdx] = useState(0);
   const [addMode, setAddMode] = useState(false);
   const [removeMode, setRemoveMode] = useState(false);
+  const [relabelMode, setRelabelMode] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [editingDancer, setEditingDancer] = useState(null);
   const [editingName, setEditingName] = useState("");
   const [lastRemovedDancer, setLastRemovedDancer] = useState(null);
+  const [selectedDancerForRelabel, setSelectedDancerForRelabel] = useState(null);
+  const [showRelabelDropdown, setShowRelabelDropdown] = useState(false);
+  const [relabelDropdownPosition, setRelabelDropdownPosition] = useState({ x: 0, y: 0 });
 
   const videoPlayerRef = useRef(null);
 
@@ -441,12 +455,130 @@ export default function FormationViewer({ session, formations: initialFormations
 
   function toggleAddMode() {
     setAddMode(!addMode);
-    setRemoveMode(false); // Exit remove mode when entering add mode
+    setRemoveMode(false);
+    setRelabelMode(false);
+    setShowRelabelDropdown(false);
   }
 
   function toggleRemoveMode() {
     setRemoveMode(!removeMode);
-    setAddMode(false); // Exit add mode when entering remove mode
+    setAddMode(false);
+    setRelabelMode(false);
+    setShowRelabelDropdown(false);
+  }
+
+  function toggleRelabelMode() {
+    setRelabelMode(!relabelMode);
+    setAddMode(false);
+    setRemoveMode(false);
+    setSelectedDancerForRelabel(null);
+    setShowRelabelDropdown(false);
+  }
+
+  function showRelabelOptions(dancerId, x, y) {
+    setSelectedDancerForRelabel(dancerId);
+    setRelabelDropdownPosition({ x, y });
+    setShowRelabelDropdown(true);
+  }
+
+  function relabelDancer(newLabel, newId) {
+    if (selectedDancerForRelabel) {
+      // Find the target dancer's current data to swap with
+      const targetDancer = Object.values(registry).find(d => d.id === newId);
+      const currentDancer = Object.values(registry).find(d => d.id === selectedDancerForRelabel);
+      
+      if (targetDancer && currentDancer && newId !== selectedDancerForRelabel) {
+        // Perform a complete identity swap across ALL formations
+        setFormations(prev => 
+          prev.map(formation => ({
+            ...formation,
+            dancers: formation.dancers.map(dancer => {
+              if (dancer.id === selectedDancerForRelabel) {
+                // Change this dancer to the target identity
+                return { ...dancer, id: newId, label: newLabel };
+              } else if (dancer.id === newId) {
+                // Change the target dancer to the current identity
+                return { ...dancer, id: selectedDancerForRelabel, label: currentDancer.label };
+              }
+              return dancer;
+            })
+          }))
+        );
+      } else if (newId === selectedDancerForRelabel) {
+        // Just updating the label, keeping the same ID
+        setFormations(prev => 
+          prev.map(formation => ({
+            ...formation,
+            dancers: formation.dancers.map(dancer => 
+              dancer.id === selectedDancerForRelabel 
+                ? { ...dancer, label: newLabel }
+                : dancer
+            )
+          }))
+        );
+      }
+      
+      setShowRelabelDropdown(false);
+      setSelectedDancerForRelabel(null);
+    }
+  }
+
+  function deleteDancerFromAllFormations(dancerId) {
+    const dancerLabel = registry[dancerId]?.label || `Dancer ${dancerId}`;
+    if (confirm(`Are you sure you want to delete "${dancerLabel}" from all formations? This cannot be undone.`)) {
+      // Remove the dancer from all formations
+      setFormations(prev => 
+        prev.map(formation => ({
+          ...formation,
+          dancers: formation.dancers.filter(dancer => dancer.id !== dancerId)
+        }))
+      );
+    }
+  }
+
+  function addDancerToAllFormations() {
+    // Find the next available ID
+    const allDancerIds = formations.flatMap(f => f.dancers.map(d => d.id));
+    const maxId = Math.max(0, ...allDancerIds);
+    const newId = maxId + 1;
+    
+    // Add the new dancer to all formations in offstage area
+    setFormations(prev => 
+      prev.map(formation => {
+        // Calculate offstage position based on existing offstage dancers in this formation
+        const existingOffstage = formation.dancers.filter(d => d.offstage || d.x > 1.0).length;
+        const offstage_x = 1.2 + (existingOffstage % 2) * 0.15;
+        const offstage_y = 0.1 + (existingOffstage * 0.12);
+        
+        const { cx, cy } = toCanvas(offstage_x, offstage_y, 780, 480);
+        
+        const newDancer = {
+          id: newId,
+          label: `Dancer ${newId} (added)`,
+          x: offstage_x,
+          y: offstage_y,
+          x_top: offstage_x,
+          y_top: offstage_y,
+          cx,
+          cy,
+          bbox: [0, 0, 0, 0],
+          keypoints: [],
+          confidence: 0.0,
+          manual: true,
+          offstage: true
+        };
+        
+        return {
+          ...formation,
+          dancers: [...formation.dancers, newDancer]
+        };
+      })
+    );
+  }
+
+  function closeRelabelDropdown() {
+    setShowRelabelDropdown(false);
+    setSelectedDancerForRelabel(null);
   }
 
   // Get missing dancers (dancers that exist in registry but not in current formation)
@@ -576,7 +708,15 @@ export default function FormationViewer({ session, formations: initialFormations
         {formations.map((f, i) => (
           <button
             key={f.frame_id}
-            onClick={() => { setActiveIdx(i); setAddMode(false); setRemoveMode(false); setLastRemovedDancer(null); }}
+            onClick={() => { 
+              setActiveIdx(i); 
+              setAddMode(false); 
+              setRemoveMode(false); 
+              setRelabelMode(false);
+              setShowRelabelDropdown(false);
+              setSelectedDancerForRelabel(null);
+              setLastRemovedDancer(null); 
+            }}
             className={`flex-shrink-0 flex flex-col items-center gap-1 px-3 py-2 rounded-xl border transition ${
               i === activeIdx
                 ? "border-violet-500 bg-violet-950 text-white"
@@ -634,6 +774,16 @@ export default function FormationViewer({ session, formations: initialFormations
                 >
                   {removeMode ? "✕ Cancel" : "− Remove"}
                 </button>
+                <button
+                  onClick={toggleRelabelMode}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition ${
+                    relabelMode
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                  }`}
+                >
+                  {relabelMode ? "✕ Cancel" : "🏷️ Relabel"}
+                </button>
                 {lastRemovedDancer && (
                   <button
                     onClick={undoRemove}
@@ -644,6 +794,11 @@ export default function FormationViewer({ session, formations: initialFormations
                 )}
               </div>
             </div>
+            {relabelMode && (
+              <p className="text-xs text-blue-400 bg-blue-950 rounded-lg px-3 py-1.5">
+                Click on any dancer dot to swap their identity (color + label) with another dancer
+              </p>
+            )}
             {addMode && (
               <div className="space-y-2">
                 <p className="text-xs text-violet-400 bg-violet-950 rounded-lg px-3 py-1.5">
@@ -688,20 +843,91 @@ export default function FormationViewer({ session, formations: initialFormations
                 addMode={addMode}
                 removeMode={removeMode}
                 onRemoveDancer={removeDancer}
+                relabelMode={relabelMode}
+                onShowRelabelOptions={showRelabelOptions}
               />
             </div>
+            
+            {/* Relabel Dropdown */}
+            {showRelabelDropdown && (
+              <div 
+                className="fixed bg-gray-800 border border-gray-600 rounded-lg shadow-lg z-50 p-2 min-w-48"
+                style={{ 
+                  left: relabelDropdownPosition.x, 
+                  top: relabelDropdownPosition.y,
+                  transform: 'translate(-50%, -100%)'
+                }}
+              >
+                <div className="text-xs font-medium text-gray-300 mb-2 px-2">
+                  Relabel Dancer {selectedDancerForRelabel} as:
+                </div>
+                <div className="max-h-48 overflow-y-auto">
+                  {Object.values(registry).map((dancer) => (
+                    <button
+                      key={dancer.id}
+                      onClick={() => relabelDancer(dancer.label, dancer.id)}
+                      className={`w-full flex items-center gap-2 px-2 py-1 text-xs hover:bg-gray-700 rounded transition ${
+                        dancer.id === selectedDancerForRelabel ? 'bg-gray-700' : ''
+                      }`}
+                      disabled={dancer.id === selectedDancerForRelabel}
+                    >
+                      <span
+                        className="w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                        style={{ background: dancer.color }}
+                      >
+                        {dancer.id}
+                      </span>
+                      <span className="text-gray-200 truncate">
+                        {dancer.label}
+                        {dancer.id === selectedDancerForRelabel && ' (current)'}
+                      </span>
+                    </button>
+                  ))}
+                  <hr className="border-gray-600 my-1" />
+                  <button
+                    onClick={() => relabelDancer(`Dancer ${selectedDancerForRelabel} (custom)`, selectedDancerForRelabel)}
+                    className="w-full px-2 py-1 text-xs text-gray-300 hover:bg-gray-700 rounded transition"
+                  >
+                    + Just Change Label (Keep Color)
+                  </button>
+                </div>
+                <button
+                  onClick={closeRelabelDropdown}
+                  className="w-full mt-2 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            
+            {/* Click outside to close dropdown */}
+            {showRelabelDropdown && (
+              <div 
+                className="fixed inset-0 z-40"
+                onClick={closeRelabelDropdown}
+              />
+            )}
           </div>
         </div>
       )}
 
       {/* Dancer registry — persistent across all formations */}
       <div className="bg-gray-900 rounded-xl p-4 border border-gray-800">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-          Dancer Registry — consistent across all formations (click names to edit)
-        </p>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            Dancer Registry — consistent across all formations (click names to edit)
+          </p>
+          <button
+            onClick={addDancerToAllFormations}
+            className="px-3 py-1 rounded-lg text-xs font-medium bg-green-600 text-white hover:bg-green-500 transition"
+            title="Add a new dancer to all formations (placed offstage)"
+          >
+            + Add Dancer to All
+          </button>
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
           {Object.values(registry).map((d) => (
-            <div key={d.id} className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2">
+            <div key={d.id} className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2 group">
               <span
                 className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-white"
                 style={{ background: d.color }}
@@ -719,13 +945,22 @@ export default function FormationViewer({ session, formations: initialFormations
                   autoFocus
                 />
               ) : (
-                <span 
-                  className="text-sm text-gray-300 truncate cursor-pointer hover:text-white transition-colors"
-                  onClick={() => startEditingDancer(d.id, d.label)}
-                  title="Click to edit name"
-                >
-                  {d.label}
-                </span>
+                <>
+                  <span 
+                    className="text-sm text-gray-300 truncate cursor-pointer hover:text-white transition-colors flex-1"
+                    onClick={() => startEditingDancer(d.id, d.label)}
+                    title="Click to edit name"
+                  >
+                    {d.label}
+                  </span>
+                  <button
+                    onClick={() => deleteDancerFromAllFormations(d.id)}
+                    className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all text-xs px-1"
+                    title="Delete from all formations"
+                  >
+                    ✕
+                  </button>
+                </>
               )}
             </div>
           ))}
