@@ -280,6 +280,7 @@ def get_image(session_id: str, filepath: str):
 def add_formation_at_timestamp(req: AddFormationRequest):
     """
     Generate a new formation at a specific timestamp.
+    If a formation already exists at this timestamp, it will be DELETED and replaced.
     Extracts the frame, detects dancers, and generates top-down view.
     """
     session = get_session(req.session_id)
@@ -293,6 +294,62 @@ def add_formation_at_timestamp(req: AddFormationRequest):
         session_dir = Path(f"sessions/{req.session_id}")
         frames_dir = session_dir / "frames"
         frames_dir.mkdir(exist_ok=True)
+        formations_dir = session_dir / "formations"
+        formations_dir.mkdir(exist_ok=True)
+        
+        # Load existing frames index
+        index_path = session_dir / "frames_index.json"
+        if index_path.exists():
+            with open(index_path) as f:
+                frame_index = json.load(f)
+        else:
+            frame_index = []
+        
+        # CRITICAL: Check if ANY formation exists at this EXACT timestamp (within 0.01s tolerance for floating point precision)
+        # If yes, DELETE it completely before creating the new one
+        TIMESTAMP_TOLERANCE = 0.01  # Very small tolerance for exact match
+        existing_formations = []
+        for entry in frame_index:
+            if abs(entry.get("timestamp", 0) - req.timestamp) <= TIMESTAMP_TOLERANCE:
+                existing_formations.append(entry)
+        
+        if existing_formations:
+            print(f"⚠️  Found {len(existing_formations)} existing formation(s) near {req.timestamp}s")
+            print(f"🗑️  Deleting old formation files...")
+            
+            for existing_formation in existing_formations:
+                old_frame_id = existing_formation["frame_id"]
+                print(f"   Deleting formation: {old_frame_id} at {existing_formation['timestamp']}s")
+                
+                # Delete ALL old formation files
+                old_frame_path = frames_dir / f"{old_frame_id}.jpg"
+                old_topdown_path = formations_dir / f"{old_frame_id}_topdown.jpg"
+                old_dancers_path = formations_dir / f"{old_frame_id}_dancers.json"
+                
+                if old_frame_path.exists():
+                    old_frame_path.unlink()
+                    print(f"      ✓ Deleted {old_frame_path.name}")
+                else:
+                    print(f"      ⚠ Frame not found: {old_frame_path.name}")
+                    
+                if old_topdown_path.exists():
+                    old_topdown_path.unlink()
+                    print(f"      ✓ Deleted {old_topdown_path.name}")
+                else:
+                    print(f"      ⚠ Topdown not found: {old_topdown_path.name}")
+                    
+                if old_dancers_path.exists():
+                    old_dancers_path.unlink()
+                    print(f"      ✓ Deleted {old_dancers_path.name}")
+                else:
+                    print(f"      ⚠ Dancers JSON not found: {old_dancers_path.name}")
+            
+            # Remove ALL matching entries from index
+            old_frame_ids = {f["frame_id"] for f in existing_formations}
+            frame_index = [e for e in frame_index if e["frame_id"] not in old_frame_ids]
+            print(f"   ✓ Removed {len(existing_formations)} formation(s) from index")
+        else:
+            print(f"ℹ️  No existing formation found near {req.timestamp}s")
         
         # Get video path
         meta_path = session_dir / "metadata.json"
@@ -307,9 +364,11 @@ def add_formation_at_timestamp(req: AddFormationRequest):
         if not video_path.exists():
             raise HTTPException(status_code=404, detail="Video file not found")
         
-        # Generate frame_id from timestamp
+        # Generate NEW frame_id from timestamp
         frame_id = f"frame_{int(req.timestamp * 1000):08d}"
         frame_path = frames_dir / f"{frame_id}.jpg"
+        
+        print(f"📸 Creating new formation at {req.timestamp}s (frame_id: {frame_id})")
         
         # Extract frame at timestamp
         cap = cv2.VideoCapture(str(video_path))
@@ -322,38 +381,31 @@ def add_formation_at_timestamp(req: AddFormationRequest):
         
         # Save frame
         cv2.imwrite(str(frame_path), frame)
+        print(f"   ✓ Extracted frame")
         
         # Detect dancers
         dancers = detect_dancers(req.session_id, frame_id)
+        print(f"   ✓ Detected {len(dancers)} dancers")
         
         # Generate top-down view
         topdown_path = generate_topdown(req.session_id, frame_id, dancers)
+        print(f"   ✓ Generated top-down view")
         
-        # Update frames_index.json
-        index_path = session_dir / "frames_index.json"
-        if index_path.exists():
-            with open(index_path) as f:
-                frame_index = json.load(f)
-        else:
-            frame_index = []
-        
-        # Add new frame to index (sorted by timestamp)
+        # Add new entry to index (sorted by timestamp)
         new_entry = {
             "frame_id": frame_id,
             "timestamp": req.timestamp,
             "path": f"frames/{frame_id}.jpg",
         }
+        frame_index.append(new_entry)
+        frame_index.sort(key=lambda x: x["timestamp"])
         
-        # Check if frame already exists
-        existing_idx = next((i for i, e in enumerate(frame_index) if e["frame_id"] == frame_id), None)
-        if existing_idx is not None:
-            frame_index[existing_idx] = new_entry
-        else:
-            frame_index.append(new_entry)
-            frame_index.sort(key=lambda x: x["timestamp"])
-        
+        # Save updated index
         with open(index_path, "w") as f:
             json.dump(frame_index, f, indent=2)
+        
+        message = f"Formation updated (replaced {len(existing_formations)} existing)" if existing_formations else "Formation added successfully"
+        print(f"✅ {message}")
         
         return {
             "session_id": req.session_id,
@@ -362,7 +414,10 @@ def add_formation_at_timestamp(req: AddFormationRequest):
             "dancer_count": len(dancers),
             "dancers": dancers,
             "topdown_image": topdown_path,
-            "message": "Formation added successfully",
+            "message": message,
+            "updated": len(existing_formations) > 0,
+            "replaced_count": len(existing_formations),
+            "replaced_frame_ids": [f["frame_id"] for f in existing_formations] if existing_formations else [],
         }
         
     except Exception as e:
