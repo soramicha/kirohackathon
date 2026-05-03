@@ -728,21 +728,44 @@ export default function FormationViewer({ session, formations: initialFormations
         })),
       };
 
-      // Add to formations and sort by timestamp
+      // CRITICAL: Remove ALL formations at this EXACT timestamp (within 0.01s tolerance for floating point precision)
+      // Backend already deleted the files, now we need to clean up frontend state
       setFormations((prev) => {
-        const updated = [...prev, newFormation];
+        console.log(`Before cleanup: ${prev.length} formations`);
+        console.log(`Looking for duplicates near timestamp ${result.timestamp}s`);
+        
+        // First, remove any existing formations at this EXACT timestamp (0.01s tolerance)
+        const TOLERANCE = 0.01;
+        const filtered = prev.filter((f) => {
+          const isDuplicate = Math.abs(f.timestamp - result.timestamp) <= TOLERANCE;
+          if (isDuplicate) {
+            console.log(`  🗑️ Removing duplicate: ${f.frame_id} at ${f.timestamp}s (diff: ${Math.abs(f.timestamp - result.timestamp).toFixed(3)}s)`);
+          }
+          return !isDuplicate;
+        });
+        
+        console.log(`After cleanup: ${filtered.length} formations (removed ${prev.length - filtered.length})`);
+        
+        // Then add the new formation
+        const updated = [...filtered, newFormation];
+        
+        // Sort by timestamp
         updated.sort((a, b) => a.timestamp - b.timestamp);
         
         // Find and set the index of the newly added formation
         const newIdx = updated.findIndex((f) => f.frame_id === result.frame_id);
         setActiveIdx(newIdx);
         
+        console.log(`✅ Final: ${updated.length} formations, active index: ${newIdx}`);
+        
         return updated;
       });
 
       setAddFormationMessage({ 
         type: "success", 
-        text: `Formation added at ${formatTime(timestampSeconds)} (${result.dancer_count} dancers)` 
+        text: result.updated 
+          ? `Formation updated at ${formatTime(timestampSeconds)} (${result.dancer_count} dancers)`
+          : `Formation added at ${formatTime(timestampSeconds)} (${result.dancer_count} dancers)` 
       });
       setShowAddFormation(false);
       setNewTimestamp("");

@@ -164,11 +164,14 @@ def _detect_formation_timestamps(cap, fps: float, duration: float) -> list[float
                     # Capture the midpoint of the stable window
                     midpoint = stable_start + (current_time - stable_start) / 2
                     
+                    # Round to nearest second for cleaner timestamps
+                    rounded_timestamp = round(midpoint)
+                    
                     # Only add if:
                     # - No previous timestamps, OR
                     # - Sufficient spacing from last timestamp
-                    if not stable_timestamps or midpoint - stable_timestamps[-1] >= config.MIN_SPACING_BETWEEN:
-                        stable_timestamps.append(round(midpoint, 2))
+                    if not stable_timestamps or rounded_timestamp - stable_timestamps[-1] >= config.MIN_SPACING_BETWEEN:
+                        stable_timestamps.append(rounded_timestamp)
                         # Reset to look for next formation
                         stable_start = None
             else:

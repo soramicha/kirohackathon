@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: formationai-backend
+    runtime: python
+    region: oregon
+    plan: free
+    branch: main
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: YOUTUBE_COOKIES_FILE
+        value: /etc/secrets/cookies.txt
+    healthCheckPath: /health
