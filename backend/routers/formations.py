@@ -11,13 +11,59 @@ import os
 router = APIRouter()
 
 
+def _spread_overlapping(dancers: list[dict], min_dist: float = 0.06) -> list[dict]:
+    """
+    If two dancers have nearly identical x_top/y_top positions (stacked in single file),
+    nudge them apart so they're individually visible on the canvas.
+    """
+    if len(dancers) < 2:
+        return dancers
+
+    result = [d.copy() for d in dancers]
+    for i in range(len(result)):
+        for j in range(i + 1, len(result)):
+            xi = result[i].get("x_top", result[i].get("x", 0.5))
+            yi = result[i].get("y_top", result[i].get("y", 0.5))
+            xj = result[j].get("x_top", result[j].get("x", 0.5))
+            yj = result[j].get("y_top", result[j].get("y", 0.5))
+
+            dx = xj - xi
+            dy = yj - yi
+            dist = (dx**2 + dy**2) ** 0.5
+
+            if dist < min_dist and dist > 0:
+                # push them apart along their axis
+                scale = (min_dist - dist) / 2 / dist
+                result[i]["x_top"] = round(max(0.02, min(0.98, xi - dx * scale)), 4)
+                result[i]["y_top"] = round(max(0.02, min(0.98, yi - dy * scale)), 4)
+                result[j]["x_top"] = round(max(0.02, min(0.98, xj + dx * scale)), 4)
+                result[j]["y_top"] = round(max(0.02, min(0.98, yj + dy * scale)), 4)
+            elif dist == 0:
+                # exactly same position — spread horizontally
+                offset = min_dist * (j - i) * 0.5
+                result[j]["x_top"] = round(min(0.98, xj + offset), 4)
+
+    return result
+
+
 class FormationRequest(BaseModel):
     session_id: str
     frame_id: str  # e.g. "frame_0042"
 
 
-class ExportRequest(BaseModel):
+class AnalyzeAllRequest(BaseModel):
     session_id: str
+    dancer_count: int = None  # optional, for manual override
+
+
+class AddFormationRequest(BaseModel):
+    session_id: str
+    timestamp: float  # in seconds
+
+
+class DeleteFormationRequest(BaseModel):
+    session_id: str
+    frame_id: str  # e.g. "frame_00030000"
 
 
 @router.post("/analyze")
@@ -48,11 +94,16 @@ def analyze_formation(req: FormationRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class ExportRequest(BaseModel):
+    session_id: str
+
+
 @router.post("/analyze-all")
-def analyze_all_formations(req: ExportRequest):
+def analyze_all_formations(req: AnalyzeAllRequest):
     """
-    Run YOLOv11 per-frame detection with appearance-based ID matching
-    across formations. Fast and consistent dancer IDs.
+    Per-frame detection + Hungarian algorithm matching.
+    First formation establishes IDs. Subsequent formations match to it.
+    No new IDs are ever created — dancer count is fixed.
     """
     session = get_session(req.session_id)
     if not session:
@@ -70,12 +121,13 @@ def analyze_all_formations(req: ExportRequest):
     if not frame_index:
         raise HTTPException(status_code=400, detail="No frames found. Extract frames first.")
 
-    from services.matcher import match_dancers
+    from services.matcher import match_formations
     import cv2
 
     results = []
-    prev_dancers = None
-    prev_img = None
+    anchor_dancers = None  # first formation becomes the anchor
+    anchor_img = None
+    num_dancers = req.dancer_count or 4
 
     for entry in frame_index:
         frame_id = entry["frame_id"]
@@ -86,11 +138,56 @@ def analyze_all_formations(req: ExportRequest):
             curr_img = cv2.imread(str(frame_path))
             dancers = detect_dancers(req.session_id, frame_id)
 
-            # Match IDs to previous formation using appearance + proximity
-            if prev_dancers is not None and prev_img is not None:
-                dancers = match_dancers(prev_dancers, dancers, prev_img, curr_img)
+            if anchor_dancers is None:
+                # First formation — establish IDs 1 through N
+                # Take top N by confidence if we detected more
+                dancers.sort(key=lambda d: d["confidence"], reverse=True)
+                dancers = dancers[:num_dancers]
+                dancers.sort(key=lambda d: d["x"])  # re-sort left to right
+                for i, d in enumerate(dancers):
+                    d["id"] = i + 1
+                    d["label"] = f"Dancer {i + 1}"
+                anchor_dancers = dancers
+                anchor_img = curr_img
+            else:
+                # Take top detections by confidence, cap to expected count
+                dancers.sort(key=lambda d: d["confidence"], reverse=True)
+                dancers = dancers[:num_dancers]
+                dancers.sort(key=lambda d: d["x"])
+                # Match to anchor using Hungarian algorithm
+                dancers = match_formations(
+                    anchor_dancers, anchor_img,
+                    dancers, curr_img,
+                    num_dancers,
+                )
+
+            # Add offstage placeholders for missing dancers
+            detected_ids = {d["id"] for d in dancers}
+            all_ids = set(range(1, num_dancers + 1))
+            missing = all_ids - detected_ids
+            for mid in sorted(missing):
+                idx = len(dancers)
+                dancers.append({
+                    "id": mid,
+                    "label": f"Dancer {mid} (offstage)",
+                    "x": 1.2 + (idx % 2) * 0.15,
+                    "y": 0.1 + idx * 0.12,
+                    "bbox": [0, 0, 0, 0],
+                    "keypoints": [],
+                    "confidence": 0.0,
+                    "offstage": True,
+                })
 
             topdown_path = generate_topdown(req.session_id, frame_id, dancers)
+
+            # Save dancers with x_top/y_top
+            out_path = Path(f"sessions/{req.session_id}/formations/{frame_id}_dancers.json")
+            out_path.parent.mkdir(exist_ok=True)
+            with open(out_path, "w") as f:
+                import json as _json
+                _json.dump(dancers, f, indent=2)
+
+            dancers = _spread_overlapping(dancers)
 
             results.append({
                 "frame_id": frame_id,
@@ -99,9 +196,6 @@ def analyze_all_formations(req: ExportRequest):
                 "dancers": dancers,
                 "topdown_image": topdown_path,
             })
-
-            prev_dancers = dancers
-            prev_img = curr_img
 
         except Exception as e:
             results.append({
@@ -115,7 +209,46 @@ def analyze_all_formations(req: ExportRequest):
     return {"session_id": req.session_id, "formations": results}
 
 
-@router.get("/image/{session_id}/{filepath:path}")
+@router.post("/save-formations")
+def save_formations(req: dict):
+    """
+    Save the current canvas state (after user edits) back to disk.
+    """
+    import json
+    session_id = req.get("session_id")
+    formations = req.get("formations", [])
+
+    print(f"[save-formations] session={session_id}, formations={len(formations)}")
+    if formations:
+        sample = formations[0].get("dancers", [])[:2]
+        print(f"[save-formations] sample dancers: {[(d.get('id'), d.get('offstage'), d.get('x_top')) for d in sample]}")
+
+    session_dir = Path(f"sessions/{session_id}")
+    if not session_dir.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    for formation in formations:
+        frame_id = formation.get("frame_id")
+        dancers = formation.get("dancers", [])
+        if not frame_id:
+            continue
+
+        # Convert canvas cx/cy back to normalized x_top/y_top if needed
+        for d in dancers:
+            if d.get("x_top") is None and d.get("cx") is not None:
+                W, H, PAD = 720, 480, 48
+                d["x_top"] = round((d["cx"] - PAD) / (W - PAD * 2), 4)
+                d["y_top"] = round((d["cy"] - PAD) / (H - PAD * 2), 4)
+
+        out_path = session_dir / "formations" / f"{frame_id}_dancers.json"
+        out_path.parent.mkdir(exist_ok=True)
+        with open(out_path, "w") as f:
+            json.dump(dancers, f, indent=2)
+
+    return {"status": "saved", "formations_saved": len(formations)}
+
+
+
 def get_image(session_id: str, filepath: str):
     """Serve a frame or top-down image. filepath can include subdirectories."""
     path = Path(f"sessions/{session_id}") / filepath
@@ -124,19 +257,249 @@ def get_image(session_id: str, filepath: str):
     return FileResponse(str(path))
 
 
+@router.post("/add-formation")
+def add_formation_at_timestamp(req: AddFormationRequest):
+    """
+    Generate a new formation at a specific timestamp.
+    If a formation already exists at this timestamp, it will be DELETED and replaced.
+    Extracts the frame, detects dancers, and generates top-down view.
+    """
+    session = get_session(req.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        import cv2
+        import json
+        
+        session_dir = Path(f"sessions/{req.session_id}")
+        frames_dir = session_dir / "frames"
+        frames_dir.mkdir(exist_ok=True)
+        formations_dir = session_dir / "formations"
+        formations_dir.mkdir(exist_ok=True)
+        
+        # Load existing frames index
+        index_path = session_dir / "frames_index.json"
+        if index_path.exists():
+            with open(index_path) as f:
+                frame_index = json.load(f)
+        else:
+            frame_index = []
+        
+        # CRITICAL: Check if ANY formation exists at this EXACT timestamp (within 0.01s tolerance for floating point precision)
+        # If yes, DELETE it completely before creating the new one
+        TIMESTAMP_TOLERANCE = 0.01  # Very small tolerance for exact match
+        existing_formations = []
+        for entry in frame_index:
+            if abs(entry.get("timestamp", 0) - req.timestamp) <= TIMESTAMP_TOLERANCE:
+                existing_formations.append(entry)
+        
+        if existing_formations:
+            print(f"⚠️  Found {len(existing_formations)} existing formation(s) near {req.timestamp}s")
+            print(f"🗑️  Deleting old formation files...")
+            
+            for existing_formation in existing_formations:
+                old_frame_id = existing_formation["frame_id"]
+                print(f"   Deleting formation: {old_frame_id} at {existing_formation['timestamp']}s")
+                
+                # Delete ALL old formation files
+                old_frame_path = frames_dir / f"{old_frame_id}.jpg"
+                old_topdown_path = formations_dir / f"{old_frame_id}_topdown.jpg"
+                old_dancers_path = formations_dir / f"{old_frame_id}_dancers.json"
+                
+                if old_frame_path.exists():
+                    old_frame_path.unlink()
+                    print(f"      ✓ Deleted {old_frame_path.name}")
+                else:
+                    print(f"      ⚠ Frame not found: {old_frame_path.name}")
+                    
+                if old_topdown_path.exists():
+                    old_topdown_path.unlink()
+                    print(f"      ✓ Deleted {old_topdown_path.name}")
+                else:
+                    print(f"      ⚠ Topdown not found: {old_topdown_path.name}")
+                    
+                if old_dancers_path.exists():
+                    old_dancers_path.unlink()
+                    print(f"      ✓ Deleted {old_dancers_path.name}")
+                else:
+                    print(f"      ⚠ Dancers JSON not found: {old_dancers_path.name}")
+            
+            # Remove ALL matching entries from index
+            old_frame_ids = {f["frame_id"] for f in existing_formations}
+            frame_index = [e for e in frame_index if e["frame_id"] not in old_frame_ids]
+            print(f"   ✓ Removed {len(existing_formations)} formation(s) from index")
+        else:
+            print(f"ℹ️  No existing formation found near {req.timestamp}s")
+        
+        # Get video path
+        meta_path = session_dir / "metadata.json"
+        if meta_path.exists():
+            with open(meta_path) as f:
+                meta = json.load(f)
+            video_path = Path(meta.get("video_path", str(session_dir / "video.mp4")))
+        else:
+            candidates = list(session_dir.glob("video.*"))
+            video_path = candidates[0] if candidates else session_dir / "video.mp4"
+        
+        if not video_path.exists():
+            raise HTTPException(status_code=404, detail="Video file not found")
+        
+        # Generate NEW frame_id from timestamp
+        frame_id = f"frame_{int(req.timestamp * 1000):08d}"
+        frame_path = frames_dir / f"{frame_id}.jpg"
+        
+        print(f"📸 Creating new formation at {req.timestamp}s (frame_id: {frame_id})")
+        
+        # Extract frame at timestamp
+        cap = cv2.VideoCapture(str(video_path))
+        cap.set(cv2.CAP_PROP_POS_MSEC, req.timestamp * 1000)
+        ret, frame = cap.read()
+        cap.release()
+        
+        if not ret:
+            raise HTTPException(status_code=400, detail=f"Could not extract frame at {req.timestamp}s")
+        
+        # Save frame
+        cv2.imwrite(str(frame_path), frame)
+        print(f"   ✓ Extracted frame")
+        
+        # Detect dancers
+        dancers = detect_dancers(req.session_id, frame_id)
+        print(f"   ✓ Detected {len(dancers)} dancers")
+        
+        # Generate top-down view
+        topdown_path = generate_topdown(req.session_id, frame_id, dancers)
+        print(f"   ✓ Generated top-down view")
+        
+        # Add new entry to index (sorted by timestamp)
+        new_entry = {
+            "frame_id": frame_id,
+            "timestamp": req.timestamp,
+            "path": f"frames/{frame_id}.jpg",
+        }
+        frame_index.append(new_entry)
+        frame_index.sort(key=lambda x: x["timestamp"])
+        
+        # Save updated index
+        with open(index_path, "w") as f:
+            json.dump(frame_index, f, indent=2)
+        
+        message = f"Formation updated (replaced {len(existing_formations)} existing)" if existing_formations else "Formation added successfully"
+        print(f"✅ {message}")
+        
+        return {
+            "session_id": req.session_id,
+            "frame_id": frame_id,
+            "timestamp": req.timestamp,
+            "dancer_count": len(dancers),
+            "dancers": dancers,
+            "topdown_image": topdown_path,
+            "message": message,
+            "updated": len(existing_formations) > 0,
+            "replaced_count": len(existing_formations),
+            "replaced_frame_ids": [f["frame_id"] for f in existing_formations] if existing_formations else [],
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/delete-formation")
+def delete_formation(req: DeleteFormationRequest):
+    """
+    Delete a formation and its associated files.
+    Removes frame image, top-down view, dancers JSON, and updates the index.
+    """
+    session = get_session(req.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        import json
+        
+        session_dir = Path(f"sessions/{req.session_id}")
+        
+        # Delete frame image
+        frame_path = session_dir / "frames" / f"{req.frame_id}.jpg"
+        if frame_path.exists():
+            frame_path.unlink()
+        
+        # Delete top-down image
+        topdown_path = session_dir / "formations" / f"{req.frame_id}_topdown.jpg"
+        if topdown_path.exists():
+            topdown_path.unlink()
+        
+        # Delete dancers JSON
+        dancers_path = session_dir / "formations" / f"{req.frame_id}_dancers.json"
+        if dancers_path.exists():
+            dancers_path.unlink()
+        
+        # Update frames_index.json
+        index_path = session_dir / "frames_index.json"
+        if index_path.exists():
+            with open(index_path) as f:
+                frame_index = json.load(f)
+            
+            # Remove the frame from index
+            frame_index = [e for e in frame_index if e["frame_id"] != req.frame_id]
+            
+            with open(index_path, "w") as f:
+                json.dump(frame_index, f, indent=2)
+        
+        return {
+            "session_id": req.session_id,
+            "frame_id": req.frame_id,
+            "message": "Formation deleted successfully",
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/export")
 def export_session(req: ExportRequest):
     """
-    Bundle all session data (JSON + images) into a zip for download.
+    Generate a PDF of all formations using the current session's analyzed data.
     """
     session_dir = Path(f"sessions/{req.session_id}")
     if not session_dir.exists():
         raise HTTPException(status_code=404, detail="Session not found")
 
-    zip_path = session_dir / "export.zip"
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for file in session_dir.rglob("*"):
-            if file.suffix in [".jpg", ".json"] and file != zip_path:
-                zf.write(file, file.relative_to(session_dir))
+    index_path = session_dir / "frames_index.json"
+    if not index_path.exists():
+        raise HTTPException(status_code=400, detail="No formations found. Run analysis first.")
 
-    return FileResponse(str(zip_path), filename=f"formations_{req.session_id}.zip")
+    import json
+    from services.pdf_exporter import generate_pdf
+    from services.downloader import get_metadata
+
+    with open(index_path) as f:
+        frame_index = json.load(f)
+
+    formations = []
+    for entry in frame_index:
+        frame_id = entry["frame_id"]
+        dancer_path = session_dir / "formations" / f"{frame_id}_dancers.json"
+
+        dancers = []
+        if dancer_path.exists():
+            with open(dancer_path) as f:
+                raw = json.load(f)
+                # only include dancers that have valid x_top/y_top from current run
+                dancers = [d for d in raw if d.get("x_top") is not None]
+
+        formations.append({
+            "frame_id": frame_id,
+            "timestamp": entry.get("timestamp", 0),
+            "dancers": dancers,
+        })
+
+    metadata = get_metadata(req.session_id)
+    pdf_path = generate_pdf(req.session_id, formations, metadata)
+
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=f"formations_{req.session_id}.pdf"
+    )

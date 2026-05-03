@@ -3,10 +3,11 @@ import json
 import numpy as np
 from pathlib import Path
 from typing import Literal
+from config import FormationDetectionConfig
 
 
-MIN_FORMATION_DURATION = 2.0  # seconds — lowered from 3.0 to catch more formations
-SAMPLE_INTERVAL = 2.0          # sample every 2s
+# Detection parameters (imported from config.py)
+# Adjust these in config.py to tune detection behavior
 
 
 def _get_video_path(session_id: str) -> Path:
@@ -83,25 +84,52 @@ def extract_frames(
 
     cap.release()
 
-    # persist frame index
+    # persist frame index - MERGE with existing entries to avoid overwriting manual formations
     index_path = session_dir / "frames_index.json"
+    
+    # Load existing index if it exists
+    existing_index = []
+    if index_path.exists():
+        with open(index_path) as f:
+            existing_index = json.load(f)
+    
+    # Merge: keep existing entries that aren't in the new extracted list
+    existing_frame_ids = {e["frame_id"] for e in extracted}
+    merged_index = [e for e in existing_index if e["frame_id"] not in existing_frame_ids]
+    merged_index.extend(extracted)
+    
+    # Sort by timestamp
+    merged_index.sort(key=lambda x: x.get("timestamp", 0))
+    
     with open(index_path, "w") as f:
-        json.dump(extracted, f, indent=2)
+        json.dump(merged_index, f, indent=2)
 
     return extracted
 
 
 def _detect_formation_timestamps(cap, fps: float, duration: float) -> list[float]:
     """
-    Scan the video at SAMPLE_INTERVAL intervals and detect timestamps where
-    the scene is stable for at least MIN_FORMATION_DURATION seconds.
-
-    Uses frame difference to detect motion — low motion = stable formation.
+    Scan the video and detect stable formation timestamps using multiple signals:
+    1. Low motion (frame difference)
+    2. Presence of multiple people (YOLO detection)
+    3. No scene cuts or camera changes (edge detection)
+    4. Minimum spacing between formations
+    
+    This reduces false positives from transitions, empty frames, and single-person shots.
     """
+    from services.detector import _get_model
+    
+    config = FormationDetectionConfig
+    
     stable_timestamps = []
     prev_gray = None
+    prev_edges = None
     stable_start = None
+    stable_people_count = 0
     current_time = 0.0
+    
+    # Load YOLO model for people counting
+    model = _get_model()
 
     while current_time < duration:
         cap.set(cv2.CAP_PROP_POS_MSEC, current_time * 1000)
@@ -109,27 +137,65 @@ def _detect_formation_timestamps(cap, fps: float, duration: float) -> list[float
         if not ret:
             break
 
+        # 1. Motion detection (frame difference)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (21, 21), 0)
+        
+        # 2. Edge detection for scene cuts
+        edges = cv2.Canny(gray, 50, 150)
+        
+        # 3. People counting (run YOLO every sample)
+        results = model(frame, verbose=False, conf=config.YOLO_CONFIDENCE, classes=[0])[0]
+        people_count = len(results.boxes) if results.boxes is not None else 0
 
-        if prev_gray is not None:
+        is_stable = False
+        has_scene_cut = False
+        
+        if prev_gray is not None and prev_edges is not None:
+            # Check motion stability
             diff = cv2.absdiff(prev_gray, gray)
             mean_diff = np.mean(diff)
-
-            is_stable = mean_diff < 12.0  # raised from 8.0 — more tolerant of small movements
+            
+            # Check for scene cuts (sudden edge changes)
+            edge_diff = cv2.absdiff(prev_edges, edges)
+            edge_change_ratio = np.count_nonzero(edge_diff) / edge_diff.size
+            has_scene_cut = edge_change_ratio > config.EDGE_CHANGE_THRESHOLD
+            
+            # A frame is stable if:
+            # - Low motion
+            # - Multiple people present
+            # - No scene cut
+            is_stable = (
+                mean_diff < config.MOTION_THRESHOLD and 
+                people_count >= config.MIN_PEOPLE_COUNT and
+                not has_scene_cut
+            )
 
             if is_stable:
                 if stable_start is None:
                     stable_start = current_time
-                elif current_time - stable_start >= MIN_FORMATION_DURATION:
-                    # capture the midpoint of the stable window
+                    stable_people_count = people_count
+                elif current_time - stable_start >= config.MIN_FORMATION_DURATION:
+                    # Capture the midpoint of the stable window
                     midpoint = stable_start + (current_time - stable_start) / 2
-                    if not stable_timestamps or midpoint - stable_timestamps[-1] > MIN_FORMATION_DURATION:
-                        stable_timestamps.append(round(midpoint, 2))
+                    
+                    # Round to nearest second for cleaner timestamps
+                    rounded_timestamp = round(midpoint)
+                    
+                    # Only add if:
+                    # - No previous timestamps, OR
+                    # - Sufficient spacing from last timestamp
+                    if not stable_timestamps or rounded_timestamp - stable_timestamps[-1] >= config.MIN_SPACING_BETWEEN:
+                        stable_timestamps.append(rounded_timestamp)
+                        # Reset to look for next formation
+                        stable_start = None
             else:
+                # Reset if stability breaks
                 stable_start = None
+                stable_people_count = 0
 
         prev_gray = gray
-        current_time += SAMPLE_INTERVAL
+        prev_edges = edges
+        current_time += config.SAMPLE_INTERVAL
 
     return stable_timestamps

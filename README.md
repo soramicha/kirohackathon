@@ -14,20 +14,44 @@ Cal Poly's showcases bring together dozens of non-audition dance groups on one s
 - Python 3.12+
 - Node.js 20.17+
 - ffmpeg (required for video merging)
+- uv (Python package manager) - [Install uv](https://docs.astral.sh/uv/getting-started/installation/)
 
 Install ffmpeg on Windows:
 ```
 winget install ffmpeg
 ```
 
-### Backend Setup
+Install uv:
 ```bash
-pip install -r backend/requirements.txt
-python backend/main.py
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Or with pip
+pip install uv
 ```
+
+### Backend Setup
+
+#### Using uv (recommended)
+```bash
+cd backend
+uv sync
+uv run python main.py
+```
+
+#### Using pip (alternative)
+```bash
+cd backend
+pip install -r requirements.txt
+python main.py
+```
+
 Backend runs on `http://localhost:8000`. YOLOv11 model (~7MB) downloads automatically on first startup.
 
-> **Note:** If you see `YOLO warmup failed` on startup, run:
+> **Note:** If you see `YOLO warmup failed` on startup with pip, run:
 > ```bash
 > pip install torch torchvision ultralytics>=8.4.0
 > ```
@@ -46,6 +70,79 @@ Copy the example env file:
 cp frontend/.env.example frontend/.env
 ```
 Default points to `http://localhost:8000` — no changes needed for local dev.
+
+---
+
+## Formation Detection
+
+The app includes **auto-detection** of stable formations using multi-signal analysis:
+- Motion detection (frame difference)
+- People counting (YOLO)
+- Scene cut detection (edge analysis)
+- Temporal stability requirements
+
+### Detection Presets
+
+Choose from three presets in the UI:
+- **Strict** - Fewer false positives, best for clean practice videos
+- **Balanced** - Good default for most videos (recommended)
+- **Loose** - Catches more formations, best for fast choreography
+
+### Fine-Tuning Detection
+
+Getting too many false positives? See [DETECTION_TUNING.md](backend/DETECTION_TUNING.md) for:
+- Parameter explanations
+- Troubleshooting guide
+- Example configurations for different video types
+- How to customize detection behavior
+
+---
+
+## Full-Video Tracking (NEW!)
+
+Track dancers throughout the entire video with **persistent IDs** and **occlusion handling**:
+
+### Key Features
+- ✅ **Persistent IDs** - Same dancer keeps same ID from start to finish
+- ✅ **Occlusion Handling** - Infers positions when dancers are hidden behind others
+- ✅ **Trajectory Tracking** - Records complete movement paths
+- ✅ **Re-identification** - Matches dancers after temporary occlusion
+
+### Quick Start
+
+```bash
+# Start tracking (takes 2-5 minutes for 4-min video)
+POST /tracking/track/{session_id}
+{
+  "sample_rate": 5,
+  "confidence": 0.3,
+  "tracker": "botsort"
+}
+
+# Get dancers at any timestamp with consistent IDs
+POST /tracking/dancers-at-timestamp/{session_id}
+{
+  "timestamp": 45.5
+}
+
+# Create visualization video with IDs and trajectories
+POST /tracking/visualize/{session_id}
+```
+
+### When to Use
+
+**Use Per-Frame Detection (current default):**
+- Quick results needed (seconds)
+- Only specific timestamps matter
+- No occlusions in video
+
+**Use Full-Video Tracking:**
+- Need consistent IDs across video
+- Dancers frequently occluded
+- Analyzing full choreography
+- Can wait 2-5 minutes
+
+See [TRACKING_SYSTEM.md](backend/TRACKING_SYSTEM.md) for complete documentation.
 
 ---
 

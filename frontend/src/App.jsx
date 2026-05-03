@@ -1,17 +1,24 @@
 import { useState } from "react";
 import VideoInput from "./components/VideoInput";
+import DancerCountSelector from "./components/DancerCountSelector";
 import TimestampSelector from "./components/TimestampSelector";
 import FormationViewer from "./components/FormationViewer";
 
-const STEPS = ["input", "timestamps", "formations"];
+const STEPS = ["input", "dancers", "timestamps", "formations"];
 
 export default function App() {
   const [step, setStep] = useState("input");
   const [session, setSession] = useState(null);       // { session_id, metadata, auto_timestamps }
+  const [dancerCount, setDancerCount] = useState(null); // number of dancers
   const [formations, setFormations] = useState([]);   // analyzed formation results
 
   function handleVideoProcessed(data) {
     setSession(data);
+    setStep("dancers");
+  }
+
+  function handleDancerCountSet(count) {
+    setDancerCount(count);
     setStep("timestamps");
   }
 
@@ -27,40 +34,54 @@ export default function App() {
         <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center text-sm font-bold">
           F
         </div>
-        <span className="text-lg font-semibold tracking-tight">FormationAI</span>
+        <span className="text-lg font-semibold tracking-tight">FormIt!</span>
         <span className="ml-2 text-xs text-gray-500">
-          for Illuminate · LanternFest · CultureFest
+          Making formations easy for you!
         </span>
       </header>
 
-      {/* Step indicator */}
+      {/* Step indicator — clickable to go back */}
       <div className="flex items-center gap-2 px-6 py-3 border-b border-gray-800 text-xs text-gray-500">
-        {["input", "timestamps", "formations"].map((s, i) => (
+        {["input", "dancers", "timestamps", "formations"].map((s, i) => (
           <span key={s} className="flex items-center gap-2">
-            <span
-              className={`px-2 py-0.5 rounded-full ${
+            <button
+              onClick={() => {
+                // Only allow going back to completed steps
+                if (STEPS.indexOf(s) < STEPS.indexOf(step)) {
+                  setStep(s);
+                }
+              }}
+              disabled={STEPS.indexOf(s) >= STEPS.indexOf(step)}
+              className={`px-2 py-0.5 rounded-full transition ${
                 step === s
                   ? "bg-violet-600 text-white"
                   : STEPS.indexOf(step) > i
-                  ? "bg-gray-700 text-gray-300"
-                  : "bg-gray-800 text-gray-600"
+                  ? "bg-gray-700 text-gray-300 hover:bg-gray-600 cursor-pointer"
+                  : "bg-gray-800 text-gray-600 cursor-not-allowed"
               }`}
             >
               {i + 1}. {s.charAt(0).toUpperCase() + s.slice(1)}
-            </span>
-            {i < 2 && <span>→</span>}
+            </button>
+            {i < 3 && <span>→</span>}
           </span>
         ))}
       </div>
 
       {/* Main content */}
-      <main className="max-w-6xl mx-auto px-6 py-10">
+      <main className={`max-w-7xl mx-auto px-6 ${step === "input" ? "py-0" : "py-10"}`}>
         {step === "input" && (
           <VideoInput onProcessed={handleVideoProcessed} />
+        )}
+        {step === "dancers" && session && (
+          <DancerCountSelector
+            session={session}
+            onDancerCountSet={handleDancerCountSet}
+          />
         )}
         {step === "timestamps" && session && (
           <TimestampSelector
             session={session}
+            dancerCount={dancerCount}
             onFormationsReady={handleFormationsReady}
           />
         )}

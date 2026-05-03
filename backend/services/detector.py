@@ -17,7 +17,7 @@ def _get_model():
     return _model
 
 
-def detect_dancers(session_id: str, frame_id: str) -> list[dict]:
+def detect_dancers(session_id: str, frame_id: str, expected_count: int = None) -> list[dict]:
     """
     Run YOLOv11 pose estimation on a single frame.
     Returns dancers with consistent IDs, positions, and keypoints.
@@ -32,21 +32,34 @@ def detect_dancers(session_id: str, frame_id: str) -> list[dict]:
     h, w = img.shape[:2]
 
     model = _get_model()
-    results = model(img, verbose=False)[0]
+    results = model(img, verbose=False, iou=0.5)[0]
 
     dancers = []
+    raw_count = 0
+    filtered_count = 0
     if results.boxes is not None:
         for i, (box, conf, cls) in enumerate(zip(
             results.boxes.xyxy,
             results.boxes.conf,
             results.boxes.cls
         )):
-            if int(cls) != 0:  # person class only
+            if int(cls) != 0:
                 continue
-            if float(conf) < 0.4:
+            raw_count += 1
+            if float(conf) < 0.2:
                 continue
 
             x1, y1, x2, y2 = [float(v) for v in box]
+
+            # Filter out tiny detections (reflections, signs, noise)
+            box_h = y2 - y1
+            box_w = x2 - x1
+            if box_h < h * 0.12 or box_w < w * 0.03:
+                filtered_count += 1
+                continue
+            if box_h / max(box_w, 1) < 0.8:
+                filtered_count += 1
+                continue
             cx = (x1 + x2) / 2 / w
             cy = (y1 + y2) / 2 / h
 
@@ -70,11 +83,54 @@ def detect_dancers(session_id: str, frame_id: str) -> list[dict]:
             })
 
     # sort left-to-right for consistent numbering within a frame
+    print(f"[detect] {frame_id}: raw={raw_count}, filtered_out={filtered_count}, kept={len(dancers)}")
     dancers.sort(key=lambda d: d["x"])
     for i, d in enumerate(dancers):
         d["id"] = i + 1
         zone = d["label"].split("(")[-1].rstrip(")")
         d["label"] = f"Dancer {i + 1} ({zone})"
+
+    # If expected_count is specified and we have fewer dancers, add missing ones offstage
+    if expected_count and len(dancers) < expected_count:
+        missing_count = expected_count - len(dancers)
+        
+        # Place missing dancers in the right offstage area (x > 1.0)
+        for i in range(missing_count):
+            dancer_id = len(dancers) + i + 1
+            # Simple vertical spacing with good padding
+            offstage_x = 1.2 + (i % 2) * 0.15  # 2 columns with good spacing
+            offstage_y = 0.1 + (i * 0.12)      # vertical spacing with padding
+            
+            dancers.append({
+                "id": dancer_id,
+                "label": f"Dancer {dancer_id} (offstage)",
+                "x": offstage_x,
+                "y": offstage_y,
+                "bbox": [0, 0, 0, 0],  # no actual detection
+                "keypoints": [],
+                "confidence": 0.0,
+                "manual": True,  # flag to indicate this was manually added
+                "offstage": True  # flag to indicate this is offstage
+            })
+
+    # Final safety check: if we still have no dancers and expected_count is specified, add them all offstage
+    if expected_count and len(dancers) == 0:
+        for i in range(expected_count):
+            # Simple vertical spacing with good padding
+            offstage_x = 1.2 + (i % 2) * 0.15  # 2 columns with good spacing
+            offstage_y = 0.1 + (i * 0.12)      # vertical spacing with padding
+            
+            dancers.append({
+                "id": i + 1,
+                "label": f"Dancer {i + 1} (offstage)",
+                "x": offstage_x,
+                "y": offstage_y,
+                "bbox": [0, 0, 0, 0],  # no actual detection
+                "keypoints": [],
+                "confidence": 0.0,
+                "manual": True,  # flag to indicate this was manually added
+                "offstage": True  # flag to indicate this is offstage
+            })
 
     # persist
     out_path = session_dir / "formations" / f"{frame_id}_dancers.json"
