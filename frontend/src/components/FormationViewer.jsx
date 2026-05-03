@@ -644,7 +644,10 @@ export default function FormationViewer({ session, formations: initialFormations
   async function handleExport() {
     setExporting(true);
     try {
+      console.log("Starting PDF export...");
+      
       // Save current canvas state (including manual edits) before generating PDF
+      console.log("Saving formations...");
       await saveFormations(session.session_id, formations.map(f => ({
         frame_id: f.frame_id,
         dancers: f.dancers.map(d => {
@@ -671,13 +674,23 @@ export default function FormationViewer({ session, formations: initialFormations
         })
       })));
 
+      console.log("Requesting PDF export...");
       const blob = await exportSession(session.session_id);
+      console.log("PDF blob received:", blob.size, "bytes");
+      
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = `formations_${session.session_id}.pdf`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      
+      console.log("PDF download triggered successfully");
+    } catch (error) {
+      console.error("PDF export error:", error);
+      alert(`Failed to export PDF: ${error.message || error}`);
     } finally {
       setExporting(false);
     }
