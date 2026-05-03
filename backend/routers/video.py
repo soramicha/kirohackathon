@@ -13,6 +13,7 @@ router = APIRouter()
 
 class VideoRequest(BaseModel):
     url: str
+    cookies: str | None = None  # Optional cookies from frontend
 
 
 class TimestampRequest(BaseModel):
@@ -31,7 +32,7 @@ def process_video(req: VideoRequest):
     """
     try:
         session_id = create_session(req.url)
-        metadata = download_video(req.url, session_id)
+        metadata = download_video(req.url, session_id, user_cookies=req.cookies)
         update_session(session_id, {"status": "downloaded"})
         return {
             "session_id": session_id,

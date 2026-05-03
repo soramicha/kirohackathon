@@ -14,4 +14,6 @@ services:
         value: 3.11.0
       - key: ALLOWED_ORIGINS
         value: "*"
+      - key: YOUTUBE_COOKIES_B64
+        value: ""  # Add your base64-encoded cookies here
     autoDeploy: false

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { processVideo } from "../api";
+import { extractYouTubeCookies, promptUserForYouTubeSignIn } from "../utils/cookieExtractor";
 
 export default function VideoInput({ onProcessed }) {
   const [url, setUrl] = useState("");
@@ -11,12 +12,39 @@ export default function VideoInput({ onProcessed }) {
     if (!url.trim()) return;
     setLoading(true);
     setError(null);
+    
     try {
-      const data = await processVideo(url.trim());
+      // Check if it's a YouTube URL
+      const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
+      let cookies = null;
+
+      if (isYouTube) {
+        // Try to extract YouTube cookies first
+        cookies = await extractYouTubeCookies();
+        
+        // If no cookies found, prompt user to sign in
+        if (!cookies?.hasAuth) {
+          setLoading(false);
+          cookies = await promptUserForYouTubeSignIn();
+          setLoading(true);
+        }
+      }
+
+      const data = await processVideo(url.trim(), cookies?.cookies);
       // go straight to timestamp selector — no scan needed
       onProcessed({ ...data, auto_timestamps: [] });
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to process video. Check the URL and try again.");
+      const errorMessage = err.response?.data?.detail || err.message || "Failed to process video. Check the URL and try again.";
+      
+      // Check for YouTube authentication errors
+      if (errorMessage.includes('bot detection') || errorMessage.includes('Sign in to confirm')) {
+        setError(
+          "YouTube requires authentication to download this video. Please sign into YouTube in this browser and try again. " +
+          "If you're already signed in, the video might be age-restricted or private."
+        );
+      } else {
+        setError(errorMessage);
+      }
     } finally {
       setLoading(false);
     }
@@ -69,9 +97,14 @@ export default function VideoInput({ onProcessed }) {
         )}
       </form>
 
-      <p className="text-xs text-gray-600">
-        Works best with practice room videos — fixed camera, clear floor, good lighting.
-      </p>
+      <div className="text-center">
+        <p className="text-xs text-gray-600 mb-2">
+          Works best with practice room videos — fixed camera, clear floor, good lighting.
+        </p>
+        <p className="text-xs text-blue-400">
+          💡 For YouTube videos: Make sure you're signed into YouTube for best results
+        </p>
+      </div>
     </div>
   );
 }
