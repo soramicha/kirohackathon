@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { exportSession, imageUrl, videoStreamUrl } from "../api";
+import { exportSession, saveFormations, imageUrl, videoStreamUrl } from "../api";
 import VideoPlayer from "./VideoPlayer";
 
 function formatTime(seconds) {
@@ -345,8 +345,9 @@ function StageCanvas({ dancers, registry, onDancersChange, addMode, removeMode, 
           ...clamped, 
           x: nx, 
           y: ny,
+          x_top: nx,   // keep x_top/y_top in sync so PDF reflects drag
+          y_top: ny,
           offstage: isNowOffstage,
-          // Update label to reflect onstage/offstage status
           label: isNowOffstage 
             ? d.label.replace('(onstage)', '(offstage)').replace(/\([^)]*\)$/, '(offstage)')
             : d.label.replace('(offstage)', '(onstage)').replace(/\([^)]*\)$/, '(onstage)')
@@ -503,6 +504,26 @@ export default function FormationViewer({ session, formations: initialFormations
   async function handleExport() {
     setExporting(true);
     try {
+      // Save current canvas state (including manual edits) before generating PDF
+      await saveFormations(session.session_id, formations.map(f => ({
+        frame_id: f.frame_id,
+        dancers: f.dancers.map(d => {
+          const W = 780, H = 480, PAD_VAL = 48;
+          const stageLeft = PAD_VAL;
+          const stageRight = W - PAD_VAL - 180;
+          const isOffstage = d.cx < stageLeft || d.cx > stageRight;
+          // normalize x_top within 0-1 for onstage, flag offstage separately
+          const nx = (d.cx - stageLeft) / (stageRight - stageLeft);
+          const ny = (d.cy - PAD_VAL) / (H - PAD_VAL * 2);
+          return {
+            ...d,
+            offstage: isOffstage,
+            x_top: round(Math.max(-0.1, Math.min(1.1, nx)), 4),
+            y_top: round(Math.max(0, Math.min(1, ny)), 4),
+          };
+        })
+      })));
+
       const blob = await exportSession(session.session_id);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -513,6 +534,10 @@ export default function FormationViewer({ session, formations: initialFormations
     } finally {
       setExporting(false);
     }
+  }
+
+  function round(val, decimals) {
+    return Math.round(val * 10 ** decimals) / 10 ** decimals;
   }
 
   function startEditingDancer(dancerId, currentLabel) {

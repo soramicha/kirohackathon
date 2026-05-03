@@ -165,23 +165,38 @@ def _draw_stage(c, dancers: list[dict],
     c.line(cx_mid - 6, cy_mid - 6, cx_mid + 6, cy_mid + 6)
     c.line(cx_mid + 6, cy_mid - 6, cx_mid - 6, cy_mid + 6)
 
-    # Dancer dots
+    # Dancer dots — only draw onstage dancers (x_top between 0 and 1)
     stage_x0 = sx + PAD
     stage_y0 = sy + PAD
     stage_w = sw - PAD * 2
     stage_h = sh - PAD * 2
 
+    offstage_dancers = []
+    onstage_dancers = []
+
     for d in dancers:
+        nx = d.get("x_top", d.get("x", 0.5))
+        ny = d.get("y_top", d.get("y", 0.5))
+        # A dancer is offstage if flagged OR if x_top is outside 0-1 range
+        is_offstage = (
+            d.get("offstage", False) is True or
+            nx is None or
+            nx > 1.0 or
+            nx < 0.0
+        )
+        if is_offstage:
+            offstage_dancers.append(d)
+        else:
+            onstage_dancers.append(d)
+
+    for d in onstage_dancers:
         nx = d.get("x_top", d.get("x", 0.5))
         ny = d.get("y_top", d.get("y", 0.5))
 
         # map normalized coords to stage pixels
-        # x_top/y_top: 0=left/back, 1=right/front (OpenCV convention)
         # reportlab y=0 is at BOTTOM of page, so we invert y to put back at top
         px = stage_x0 + nx * stage_w
         py = stage_y0 + (1 - ny) * stage_h
-
-        # clamp
         r = 8
         px = max(stage_x0 + r, min(stage_x0 + stage_w - r, px))
         py = max(stage_y0 + r, min(stage_y0 + stage_h - r, py))
@@ -214,11 +229,65 @@ def _draw_stage(c, dancers: list[dict],
         name = d.get("label", f"D{d['id']}")
         if "(" in name:
             name = name.split("(")[0].strip()
-        # shorten to last name / short name
         parts = name.replace("Dancer ", "").strip()
         c.setFillColor(TEXT_LABEL)
         c.setFont("Helvetica", 5)
         c.drawCentredString(px, py - r - 5, parts)
+
+    # Draw offstage dancers as a vertical column to the LEFT of the stage border
+    if offstage_dancers:
+        r_off = 10
+        spacing = r_off * 2 + 16
+        offstage_x = sx - r_off - 8  # outside and left of stage border
+        offstage_top = sy + sh - PAD - 30  # start lower so icons don't overlap label
+
+        # "OFFSTAGE" label — placed above the first dot with clear gap
+        c.setFont("Helvetica-Bold", 5)
+        c.setFillColor(TEXT_DIM)
+        c.drawCentredString(offstage_x, offstage_top + r_off + 14, "OFFSTAGE")
+
+        # vertical dashed separator line at stage left edge
+        c.saveState()
+        c.setStrokeColor(HexColor("#374151"))
+        c.setLineWidth(0.5)
+        c.setDash([2, 3])
+        c.line(sx + PAD, sy + PAD, sx + PAD, sy + sh - PAD)
+        c.restoreState()
+
+        for i, od in enumerate(offstage_dancers):
+            oy = offstage_top - i * spacing
+            if oy < sy + PAD + r_off:
+                break
+
+            color = _dancer_color(od["id"])
+
+            # dashed outer ring — full color so it's visible
+            c.saveState()
+            c.setStrokeColor(color)
+            c.setLineWidth(1.5)
+            c.setDash([3, 3])
+            c.circle(offstage_x, oy, r_off + 3, fill=0, stroke=1)
+            c.restoreState()
+
+            # filled dot — dulled to 40% opacity to differentiate from onstage
+            c.setFillColor(color)
+            c.setFillAlpha(0.4)
+            c.circle(offstage_x, oy, r_off, fill=1, stroke=0)
+            c.setFillAlpha(1.0)
+
+            # number — dimmed gray
+            c.setFillColor(HexColor("#999999"))
+            c.setFont("Helvetica-Bold", 6)
+            c.drawCentredString(offstage_x, oy - 2.5, str(od["id"]))
+
+            # name below dot
+            name = od.get("label", f"Dancer {od['id']}")
+            if "(" in name:
+                name = name.split("(")[0].strip()
+            name = name.replace("Dancer ", "")
+            c.setFillColor(TEXT_LABEL)
+            c.setFont("Helvetica", 5)
+            c.drawCentredString(offstage_x, oy - r_off - 6, name)
 
 
 def generate_pdf(session_id: str, formations: list[dict],
@@ -254,7 +323,7 @@ def generate_pdf(session_id: str, formations: list[dict],
         comments_w = 1.0 * inch if comment else 0
         sidebar_w = roster_w + comments_w + (0.1 * inch if comment else 0)
 
-        stage_x = margin + sidebar_w + 0.1 * inch
+        stage_x = margin + sidebar_w + 0.1 * inch + 30  # extra 30pt for offstage column
         stage_y = bottom_y
         stage_w = PAGE_W - stage_x - margin
         stage_h = content_h

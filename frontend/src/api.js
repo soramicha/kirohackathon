@@ -19,6 +19,9 @@ export const analyzeFormation = (session_id, frame_id) =>
 export const analyzeAll = (session_id, dancer_count) =>
   api.post("/formations/analyze-all", { session_id, dancer_count }).then((r) => r.data);
 
+export const saveFormations = (session_id, formations) =>
+  api.post("/formations/save-formations", { session_id, formations }).then((r) => r.data);
+
 export const exportSession = (session_id) =>
   api.post("/formations/export", { session_id }, { responseType: "blob" }).then((r) => r.data);
 

@@ -218,7 +218,46 @@ def analyze_all_formations(req: AnalyzeAllRequest):
     return {"session_id": req.session_id, "formations": results}
 
 
-@router.get("/image/{session_id}/{filepath:path}")
+@router.post("/save-formations")
+def save_formations(req: dict):
+    """
+    Save the current canvas state (after user edits) back to disk.
+    """
+    import json
+    session_id = req.get("session_id")
+    formations = req.get("formations", [])
+
+    print(f"[save-formations] session={session_id}, formations={len(formations)}")
+    if formations:
+        sample = formations[0].get("dancers", [])[:2]
+        print(f"[save-formations] sample dancers: {[(d.get('id'), d.get('offstage'), d.get('x_top')) for d in sample]}")
+
+    session_dir = Path(f"sessions/{session_id}")
+    if not session_dir.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    for formation in formations:
+        frame_id = formation.get("frame_id")
+        dancers = formation.get("dancers", [])
+        if not frame_id:
+            continue
+
+        # Convert canvas cx/cy back to normalized x_top/y_top if needed
+        for d in dancers:
+            if d.get("x_top") is None and d.get("cx") is not None:
+                W, H, PAD = 720, 480, 48
+                d["x_top"] = round((d["cx"] - PAD) / (W - PAD * 2), 4)
+                d["y_top"] = round((d["cy"] - PAD) / (H - PAD * 2), 4)
+
+        out_path = session_dir / "formations" / f"{frame_id}_dancers.json"
+        out_path.parent.mkdir(exist_ok=True)
+        with open(out_path, "w") as f:
+            json.dump(dancers, f, indent=2)
+
+    return {"status": "saved", "formations_saved": len(formations)}
+
+
+
 def get_image(session_id: str, filepath: str):
     """Serve a frame or top-down image. filepath can include subdirectories."""
     path = Path(f"sessions/{session_id}") / filepath
