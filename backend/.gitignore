@@ -8,3 +8,7 @@ cookies.txt
 # uv
 .venv/
 uv.lock
+
+# Cookie files - NEVER commit these!
+cookies.txt
+cookies*.txt
