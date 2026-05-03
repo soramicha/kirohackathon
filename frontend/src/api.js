@@ -7,8 +7,8 @@ const api = axios.create({ baseURL: BASE });
 export const processVideo = (url) =>
   api.post("/video/process", { url }).then((r) => r.data);
 
-export const scanFormations = (session_id, preset = "balanced") =>
-  api.post(`/video/scan/${session_id}`, { preset }).then((r) => r.data);
+export const scanFormations = (session_id) =>
+  api.post(`/video/scan/${session_id}`).then((r) => r.data);
 
 export const extractFrames = (session_id, timestamps) =>
   api.post("/video/extract-frames", { session_id, timestamps }).then((r) => r.data);

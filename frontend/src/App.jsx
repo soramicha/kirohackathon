@@ -40,21 +40,28 @@ export default function App() {
         </span>
       </header>
 
-      {/* Step indicator */}
+      {/* Step indicator — clickable to go back */}
       <div className="flex items-center gap-2 px-6 py-3 border-b border-gray-800 text-xs text-gray-500">
         {["input", "dancers", "timestamps", "formations"].map((s, i) => (
           <span key={s} className="flex items-center gap-2">
-            <span
-              className={`px-2 py-0.5 rounded-full ${
+            <button
+              onClick={() => {
+                // Only allow going back to completed steps
+                if (STEPS.indexOf(s) < STEPS.indexOf(step)) {
+                  setStep(s);
+                }
+              }}
+              disabled={STEPS.indexOf(s) >= STEPS.indexOf(step)}
+              className={`px-2 py-0.5 rounded-full transition ${
                 step === s
                   ? "bg-violet-600 text-white"
                   : STEPS.indexOf(step) > i
-                  ? "bg-gray-700 text-gray-300"
-                  : "bg-gray-800 text-gray-600"
+                  ? "bg-gray-700 text-gray-300 hover:bg-gray-600 cursor-pointer"
+                  : "bg-gray-800 text-gray-600 cursor-not-allowed"
               }`}
             >
               {i + 1}. {s.charAt(0).toUpperCase() + s.slice(1)}
-            </span>
+            </button>
             {i < 3 && <span>→</span>}
           </span>
         ))}

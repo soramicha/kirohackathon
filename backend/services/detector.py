@@ -32,21 +32,34 @@ def detect_dancers(session_id: str, frame_id: str, expected_count: int = None) -
     h, w = img.shape[:2]
 
     model = _get_model()
-    results = model(img, verbose=False)[0]
+    results = model(img, verbose=False, iou=0.5)[0]
 
     dancers = []
+    raw_count = 0
+    filtered_count = 0
     if results.boxes is not None:
         for i, (box, conf, cls) in enumerate(zip(
             results.boxes.xyxy,
             results.boxes.conf,
             results.boxes.cls
         )):
-            if int(cls) != 0:  # person class only
+            if int(cls) != 0:
                 continue
-            if float(conf) < 0.25:  # lowered from 0.4 — catches more dancers in darker/distant shots
+            raw_count += 1
+            if float(conf) < 0.2:
                 continue
 
             x1, y1, x2, y2 = [float(v) for v in box]
+
+            # Filter out tiny detections (reflections, signs, noise)
+            box_h = y2 - y1
+            box_w = x2 - x1
+            if box_h < h * 0.12 or box_w < w * 0.03:
+                filtered_count += 1
+                continue
+            if box_h / max(box_w, 1) < 0.8:
+                filtered_count += 1
+                continue
             cx = (x1 + x2) / 2 / w
             cy = (y1 + y2) / 2 / h
 
@@ -70,6 +83,7 @@ def detect_dancers(session_id: str, frame_id: str, expected_count: int = None) -
             })
 
     # sort left-to-right for consistent numbering within a frame
+    print(f"[detect] {frame_id}: raw={raw_count}, filtered_out={filtered_count}, kept={len(dancers)}")
     dancers.sort(key=lambda d: d["x"])
     for i, d in enumerate(dancers):
         d["id"] = i + 1

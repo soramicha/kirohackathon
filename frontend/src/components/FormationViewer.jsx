@@ -649,15 +649,22 @@ export default function FormationViewer({ session, formations: initialFormations
           const W = 780, H = 480, PAD_VAL = 48;
           const stageLeft = PAD_VAL;
           const stageRight = W - PAD_VAL - 180;
-          const isOffstage = d.cx < stageLeft || d.cx > stageRight;
-          // normalize x_top within 0-1 for onstage, flag offstage separately
+          // Generous offstage check — if center is within RADIUS of the border, count as offstage
+          const MARGIN = 20; // pixels of grace zone
+          const isOffstage = d.offstage === true || d.cx < (stageLeft + MARGIN) || d.cx > (stageRight - MARGIN);
           const nx = (d.cx - stageLeft) / (stageRight - stageLeft);
           const ny = (d.cy - PAD_VAL) / (H - PAD_VAL * 2);
           return {
-            ...d,
-            offstage: isOffstage,
+            id: d.id,
+            label: d.label,
+            x: d.x,
+            y: d.y,
             x_top: round(Math.max(-0.1, Math.min(1.1, nx)), 4),
             y_top: round(Math.max(0, Math.min(1, ny)), 4),
+            bbox: d.bbox || [0, 0, 0, 0],
+            keypoints: d.keypoints || [],
+            confidence: d.confidence || 0,
+            offstage: isOffstage,
           };
         })
       })));

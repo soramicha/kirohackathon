@@ -64,8 +64,14 @@ def generate_topdown(session_id: str, frame_id: str, dancers: list[dict]) -> str
     colors = _generate_colors(len(dancers))
 
     for dancer in dancers:
+        # Skip offstage dancers — preserve their x/y as x_top/y_top
+        if dancer.get("offstage"):
+            dancer["x_top"] = dancer.get("x", 1.2)
+            dancer["y_top"] = dancer.get("y", 0.5)
+            continue
+
         # Use the bottom-center of the bounding box as the foot position
-        if dancer.get("bbox"):
+        if dancer.get("bbox") and any(dancer["bbox"]):
             x1, y1, x2, y2 = dancer["bbox"]
             foot_x = (x1 + x2) / 2
             foot_y = float(y2)
