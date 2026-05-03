@@ -3,99 +3,35 @@ import json
 import os
 from pathlib import Path
 
-
-def get_cookie_options():
-    """
-    Get cookie configuration for yt-dlp to avoid bot detection.
-    Priority:
-    1. Render Secret File (/etc/secrets/cookies.txt) - for production
-    2. Manual cookie file (cookies.txt) - for local with manual export
-    3. Browser cookies (Chrome) - for local development only
-    4. No cookies (fallback)
-    """
-    cookie_opts = {}
-    
-    # Method 1: Render Secret File (PRODUCTION) - READ ONLY
-    secret_cookie = Path("/etc/secrets/cookies.txt")
-    try:
-        if secret_cookie.exists() and secret_cookie.is_file():
-            print(f"[downloader] ✅ Using Render secret file: {secret_cookie}")
-            cookie_opts["cookiefile"] = str(secret_cookie)
-            return cookie_opts
-    except (OSError, PermissionError) as e:
-        print(f"[downloader] ⚠️  Could not access secret file: {e}")
-    
-    # Method 2: Manual cookie file (LOCAL or PRODUCTION)
-    cookie_file = Path("cookies.txt")
-    if cookie_file.exists():
-        print(f"[downloader] ✅ Using cookie file: {cookie_file}")
-        cookie_opts["cookiefile"] = str(cookie_file)
-        return cookie_opts
-    
-    # Method 3: Browser cookies (LOCAL DEVELOPMENT ONLY)
-    # Skip browser detection in production environments
-    is_production = (
-        os.getenv("RENDER") or 
-        os.getenv("RAILWAY_ENVIRONMENT") or 
-        os.getenv("VERCEL") or 
-        os.getenv("HEROKU_APP_NAME") or
-        os.getenv("FLY_APP_NAME")
-    )
-    
-    if not is_production:
-        # Check common browser locations
-        browsers_to_try = [
-            ("chrome", None),
-            ("firefox", None),
-            ("edge", None),
-        ]
-        
-        for browser, profile in browsers_to_try:
-            try:
-                print(f"[downloader] 🔍 Attempting to use {browser} cookies...")
-                cookie_opts["cookiesfrombrowser"] = (browser, profile) if profile else (browser,)
-                return cookie_opts
-            except Exception as e:
-                print(f"[downloader] ❌ Could not access {browser} cookies: {e}")
-                continue
-    else:
-        print("[downloader] 🌐 Production environment detected - skipping browser cookie detection")
-    
-    # Method 4: No cookies (fallback)
-    print("[downloader] ⚠️  WARNING: No cookies available - downloads may trigger bot detection")
-    print("[downloader] 📝 For Render: Add cookies.txt as a Secret File")
-    print("[downloader] 📖 See RENDER-SECRET-FILES.md for instructions")
-    return {}
+# Path to a Netscape-format cookies.txt file for YouTube authentication.
+# Set via YOUTUBE_COOKIES_FILE env var, or place a cookies.txt in the backend dir.
+COOKIES_FILE = os.environ.get("YOUTUBE_COOKIES_FILE", "cookies.txt")
 
 
 def download_video(url: str, session_id: str) -> dict:
     """
     Download a YouTube video using yt-dlp and save to the session directory.
-    Automatically uses cookies to avoid bot detection.
     Returns metadata dict.
     """
     session_dir = Path(f"sessions/{session_id}")
     session_dir.mkdir(parents=True, exist_ok=True)
     video_path = session_dir / "video.mp4"
 
-    # Base options
     ydl_opts = {
-        "format": "best[ext=mp4]/best",  # single file, no merging needed
+        "format": "best[ext=mp4]/best",  # single file, no merging needed, no ffmpeg required
         "outtmpl": str(video_path),
         "quiet": True,
         "no_warnings": True,
     }
-    
-    # Add cookie options to avoid bot detection
-    print(f"[downloader] 🎬 Starting download for: {url}")
-    cookie_opts = get_cookie_options()
-    
-    if cookie_opts:
-        print(f"[downloader] 🍪 Cookie options: {list(cookie_opts.keys())}")
+
+    # Use cookies file if available to avoid YouTube bot detection
+    # NOTE: Only use cookies if explicitly provided, as bad/expired cookies cause errors
+    cookies_path = Path(COOKIES_FILE)
+    if cookies_path.exists():
+        ydl_opts["cookiefile"] = str(cookies_path)
+        print(f"Using cookies from: {cookies_path}")
     else:
-        print(f"[downloader] ⚠️  No cookie options set")
-    
-    ydl_opts.update(cookie_opts)
+        print("No cookies file - proceeding without authentication (works for most public videos)")
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
@@ -114,8 +50,6 @@ def download_video(url: str, session_id: str) -> dict:
             "video_path": str(actual_path),
         }
 
-    print(f"[downloader] ✅ Download complete: {metadata['title']}")
-    
     # persist metadata
     meta_path = session_dir / "metadata.json"
     with open(meta_path, "w") as f:
