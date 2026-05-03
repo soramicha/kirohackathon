@@ -415,6 +415,7 @@ export default function FormationViewer({ session, formations: initialFormations
   const [removeMode, setRemoveMode] = useState(false);
   const [relabelMode, setRelabelMode] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [showAddFormation, setShowAddFormation] = useState(false);
   const [newTimestamp, setNewTimestamp] = useState("");
   const [addingFormation, setAddingFormation] = useState(false);
@@ -685,6 +686,47 @@ export default function FormationViewer({ session, formations: initialFormations
 
   function round(val, decimals) {
     return Math.round(val * 10 ** decimals) / 10 ** decimals;
+  }
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      // Save current canvas state before generating PDF
+      await saveFormations(session.session_id, formations.map(f => ({
+        frame_id: f.frame_id,
+        dancers: f.dancers.map(d => {
+          const W = 780, H = 480, PAD_VAL = 48;
+          const stageLeft = PAD_VAL;
+          const stageRight = W - PAD_VAL - 180;
+          const MARGIN = 20;
+          const isOffstage = d.offstage === true || d.cx < (stageLeft + MARGIN) || d.cx > (stageRight - MARGIN);
+          const nx = (d.cx - stageLeft) / (stageRight - stageLeft);
+          const ny = (d.cy - PAD_VAL) / (H - PAD_VAL * 2);
+          return {
+            id: d.id,
+            label: d.label,
+            x: d.x,
+            y: d.y,
+            x_top: round(Math.max(-0.1, Math.min(1.1, nx)), 4),
+            y_top: round(Math.max(0, Math.min(1, ny)), 4),
+            bbox: d.bbox || [0, 0, 0, 0],
+            keypoints: d.keypoints || [],
+            confidence: d.confidence || 0,
+            offstage: isOffstage,
+          };
+        })
+      })));
+
+      const blob = await exportSession(session.session_id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `formations_${session.session_id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function handleAddFormation() {
