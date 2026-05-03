@@ -34,9 +34,9 @@ export default function App() {
         <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center text-sm font-bold">
           F
         </div>
-        <span className="text-lg font-semibold tracking-tight">FormationAI</span>
+        <span className="text-lg font-semibold tracking-tight">FormIt!</span>
         <span className="ml-2 text-xs text-gray-500">
-          for Illuminate · LanternFest · CultureFest
+          Making formations easy for you!
         </span>
       </header>
 
