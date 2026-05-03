@@ -122,6 +122,12 @@ export default function VideoInput({ onProcessed }) {
             </button>
           </div>
 
+          <div className="bg-yellow-950/30 border border-yellow-900/50 rounded-lg px-4 py-3">
+            <p className="text-xs text-yellow-400/90 leading-relaxed">
+              <strong>Note:</strong> YouTube downloads may not work when deployed due to format compatibility and cookie authentication issues. For best results, use the <strong>Upload File</strong> option above.
+            </p>
+          </div>
+
           {loading && (
             <div className="flex items-center gap-3 text-sm text-gray-400 bg-gray-900 rounded-lg px-4 py-3">
               <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
