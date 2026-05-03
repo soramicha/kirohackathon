@@ -20,7 +20,7 @@ def download_video(url: str, session_id: str) -> dict:
     video_path = session_dir / "video.mp4"
 
     ydl_opts = {
-        "format": "best[ext=mp4]/best",  # single file, no merging needed, no ffmpeg required
+        "format": "best",  # Simplest: just get the best available format
         "outtmpl": str(video_path),
         "quiet": True,
         "no_warnings": True,
